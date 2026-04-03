@@ -1,0 +1,2187 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PseudoScope ABRicate - VFDB Database Summary</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #2c0b0e 0%, #4a1c20 50%, #6b2b2f 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #ffffff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .ascii-container {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            border: 2px solid #dc3545;
+        }
+        
+        .ascii-art {
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            line-height: 1.1;
+            white-space: pre;
+            color: #dc3545;
+            text-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
+            overflow-x: auto;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            color: #1f2937;
+            padding: 25px;
+            margin: 20px 0;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        .gene-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        .gene-table th, .gene-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .gene-table th {
+            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            color: white;
+            font-weight: 600;
+        }
+        
+        tr:hover { background-color: #f8f9fa; }
+        
+        .summary-stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin: 10px;
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .quote-container {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            text-align: center;
+            font-style: italic;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .footer {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-top: 40px;
+        }
+        
+        .footer a {
+            color: #dc3545;
+            text-decoration: none;
+        }
+        
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        .present { background-color: #d4edda; }
+    </style>
+    
+        <script>
+            let quotes = ["Pseudomonas aeruginosa: the master of adaptation. - Unknown", "The important thing is not to stop questioning. Curiosity has its own reason for existing. - Albert Einstein", "Science is not only a disciple of reason but also one of romance and passion. - Stephen Hawking", "Somewhere, something incredible is waiting to be known. - Carl Sagan", "In science, there are no shortcuts to truth. - Karl Popper", "Science knows no country, because knowledge belongs to humanity. - Louis Pasteur", "The science of today is the technology of tomorrow. - Edward Teller", "Nothing in life is to be feared, it is only to be understood. - Marie Curie", "Research is what I'm doing when I don't know what I'm doing. - Wernher von Braun"];
+            let currentQuote = 0;
+            
+            function rotateQuote() {
+                document.getElementById('science-quote').innerHTML = quotes[currentQuote];
+                currentQuote = (currentQuote + 1) % quotes.length;
+            }
+            
+            // Rotate every 10 seconds
+            setInterval(rotateQuote, 10000);
+            
+            // Initial display
+            document.addEventListener('DOMContentLoaded', function() {
+                rotateQuote();
+            });
+        </script>
+        
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="ascii-container">
+                <div class="ascii-art">
+    
+██████╗ ███████╗███████╗██╗   ██╗██████╗  ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗
+██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██╔═══██╗██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
+██████╔╝███████╗█████╗  ██║   ██║██║  ██║██║   ██║███████╗██║     ██║   ██║██████╔╝█████╗  
+██╔═══╝ ╚════██║██╔══╝  ██║   ██║██║  ██║██║   ██║╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝  
+██║     ███████║███████╗╚██████╔╝██████╔╝╚██████╔╝███████║╚██████╗╚██████╔╝██║     ███████╗
+╚═╝     ╚══════╝╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝
+</div>
+            </div>
+            
+            <div class="card">
+                <h1 style="color: #333; margin: 0; font-size: 2.5em;">🧬 PseudoScope ABRicate - VFDB Database Summary</h1>
+                <p style="color: #666; font-size: 1.2em;">Cross-genome analysis of VFDB database results</p>
+            </div>
+        </div>
+        
+        <div class="quote-container">
+            <div id="science-quote" style="font-size: 1.1em;"></div>
+        </div>
+        
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">📊 Database Overview</h2>
+            <div class="summary-stats">
+                <div class="stat-card">
+                    <h3>Total Hits</h3>
+                    <p style="font-size: 2em; margin: 0;">1579</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Genomes</h3>
+                    <p style="font-size: 2em; margin: 0;">5</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Unique Genes</h3>
+                    <p style="font-size: 2em; margin: 0;">319</p>
+                </div>
+            </div>
+            <p><strong>Database:</strong> VFDB</p>
+            <p><strong>Date:</strong> 2026-03-02 16:28:40</p>
+        </div>
+        
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">🔍 Genes by Genome</h2>
+            <table class="gene-table">
+                <thead>
+                    <tr>
+                        <th>Genome</th>
+                        <th>Gene Count</th>
+                        <th>Genes Detected</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr class="present">
+                        <td><strong>GCF_000981825.1</strong></td>
+                        <td>293</td>
+                        <td>PA1458, PA1459, PA1464, PA1663, PA1664, PA1665, PA2359, PA2364, PA2383, PA2384, PA3142, PA3143, PA3348, PA3349, PA4218, PA4219, PA4220, alg44, alg8, algA, algB, algC, algD, algE, algF, algG, algI, algJ, algK, algL, algQ, algR, algU, algW, algX, algZ, aprA, cheY, cheZ, chpA, chpB, chpC, chpD, chpE, clpV1, crc, dotU1, exoS, exoT, exoY, exsA, exsB, exsC, exsD, exsE, fapA, fapB, fapC, fapD, fapE, fapF, fha1, fimL, fimT, fimU, fimV, fimX, fleI/flaG, fleN, fleP/fliT, fleQ, fleR, fleS, flgA, flgB, flgC, flgD, flgE, flgF, flgG, flgH, flgI, flgJ, flgK, flgL, flgM, flgN, flhA, flhB, flhF, fliA, fliC, fliD, fliE, fliF, fliG, fliH, fliI, fliJ, fliK, fliL, fliM, fliN, fliO, fliP, fliQ, fliR, fliS, fptA, fpvI, fpvR, hcp/tssD, hcp1, hcpA, hsiA1, hsiB1/vipA/tssB, hsiC1/vipB/tssC, hsiE1, hsiF1/tssE, hsiG1/tssF, hsiH1/tssG, hsiJ1, icmF1/tssM1, icmH/tssL, lasA, lasB, lasI, lasR, lip1, mbtH-like, motA, motB, motC, motD, motY, mucA, mucB, mucC, mucD, mucE, mucP, pchA, pchB, pchC, pchD, pchF, pchG, pchH, pchI, pchR, pcr1, pcr2, pcr3, pcr4, pcrD, pcrG, pcrH, pcrR, pcrV, phzA1, phzA2, phzB1, phzB2, phzC1, phzD1, phzE1, phzF1, phzG2, phzH, phzM, phzS, pilB, pilE, pilF, pilG, pilH, pilI, pilJ, pilK, pilM, pilN, pilO, pilP, pilQ, pilR, pilS, pilT, pilU, pilV, pilW, pilX, pilY1, pilY2, pilZ, plcH, pldB/tle5b, popB, popD, popN, ppkA, pppA, pscB, pscC, pscD, pscE, pscF, pscG, pscH, pscI, pscJ, pscK, pscL, pscN, pscO, pscP, pscQ, pscR, pscS, pscT, pscU, ptxR, pvcA, pvcB, pvcC, pvcD, pvdA, pvdF, pvdG, pvdH, pvdL, pvdM, pvdN, pvdO, pvdP, pvdQ, pvdS, pvdY, rhlA, rhlB, rhlC, rhlI, rhlR, rpoN, rpoS, spcS, stk1, stp1, tagF/pppB, tagQ, tagR, tagS, tagT, toxA, tse1, tse2, tse3, tse4, tse5/rhsP1, tse6, tssA, tssB, tssC, tssE, tssF, tssG, tssH, tssI, tssJ, tssK, tssM, vfr, vgrG, vgrG1a, vgrG1b, vgrG2b, waaA, waaC, waaF, waaG, waaP, wbpM, xcpA/pilD, xcpP, xcpQ, xcpR, xcpS, xcpT, xcpU, xcpV, xcpW, xcpX, xcpY, xcpZ</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_001457615.1</strong></td>
+                        <td>287</td>
+                        <td>PA1458, PA1459, PA1464, PA1663, PA1664, PA1665, PA2359, PA2364, PA2383, PA2384, PA3142, PA3143, PA3348, PA3349, PA4218, PA4219, PA4220, alg44, alg8, algA, algB, algC, algD, algE, algF, algG, algI, algJ, algK, algL, algP/algR3, algQ, algR, algU, algW, algX, algZ, aprA, cheY, cheZ, chpA, chpB, chpC, chpD, chpE, clpV1, crc, dotU1, exoS, exoT, exoY, exsA, exsB, exsC, exsD, exsE, fapA, fapB, fapC, fapD, fapE, fapF, fha1, fimL, fimT, fimU, fimV, fimX, fleN, fleQ, fleR, fleS, flgA, flgB, flgC, flgD, flgE, flgF, flgG, flgH, flgI, flgJ, flgK, flgM, flgN, flhA, flhB, flhF, fliA, fliE, fliF, fliG, fliH, fliI, fliJ, fliK, fliL, fliM, fliN, fliO, fliP, fliQ, fliR, fptA, fpvR, hcp/tssD, hcp1, hcpA, hsiA1, hsiB1/vipA/tssB, hsiC1/vipB/tssC, hsiE1, hsiF1/tssE, hsiG1/tssF, hsiH1/tssG, hsiJ1, icmF1/tssM1, icmH/tssL, lasA, lasB, lasI, lasR, lip1, mbtH-like, motA, motB, motC, motD, motY, mucA, mucB, mucC, mucD, mucE, mucP, pchA, pchB, pchC, pchD, pchE, pchF, pchG, pchH, pchI, pchR, pcr1, pcr2, pcr3, pcr4, pcrD, pcrG, pcrH, pcrR, pcrV, phzA1, phzA2, phzB1, phzB2, phzC1, phzD1, phzE1, phzF1, phzG2, phzH, phzM, phzS, pilB, pilE, pilF, pilG, pilH, pilI, pilJ, pilK, pilM, pilN, pilO, pilP, pilQ, pilR, pilS, pilT, pilU, pilV, pilW, pilX, pilY1, pilY2, pilZ, plcH, pldB/tle5b, popB, popD, popN, ppkA, pppA, pscB, pscC, pscD, pscE, pscF, pscG, pscH, pscI, pscJ, pscK, pscL, pscN, pscO, pscP, pscQ, pscR, pscS, pscT, pscU, ptxR, pvcA, pvcB, pvcC, pvcD, pvdA, pvdF, pvdG, pvdH, pvdL, pvdM, pvdN, pvdO, pvdP, pvdQ, pvdS, rhlA, rhlB, rhlC, rhlI, rhlR, rpoN, rpoS, spcS, stk1, stp1, tagF/pppB, tagQ, tagR, tagS, tagT, toxA, tse1, tse2, tse3, tse4, tse5/rhsP1, tse6, tse7, tssA, tssB, tssC, tssE, tssF, tssG, tssH, tssI, tssJ, tssK, tssM, vfr, vgrG, vgrG1a, vgrG1b, waaA, waaC, waaF, waaG, waaP, wbpM, xcpA/pilD, xcpP, xcpQ, xcpR, xcpS, xcpT, xcpU, xcpV, xcpW, xcpX, xcpY, xcpZ</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_002208645.1</strong></td>
+                        <td>287</td>
+                        <td>PA1458, PA1459, PA1464, PA1663, PA1664, PA1665, PA2359, PA2364, PA2383, PA2384, PA3142, PA3143, PA3348, PA3349, PA4218, PA4219, PA4220, alg44, alg8, algA, algB, algC, algD, algE, algF, algG, algI, algJ, algK, algL, algP/algR3, algQ, algR, algU, algW, algX, algZ, aprA, cheY, cheZ, chpA, chpB, chpC, chpD, chpE, clpV1, crc, dotU1, exoS, exoT, exoY, exsA, exsB, exsC, exsD, exsE, fapA, fapB, fapC, fapD, fapE, fapF, fha1, fimL, fimT, fimU, fimV, fimX, fleN, fleQ, fleR, fleS, flgA, flgB, flgC, flgD, flgE, flgF, flgG, flgH, flgI, flgJ, flgK, flgM, flgN, flhA, flhB, flhF, fliA, fliE, fliF, fliG, fliH, fliI, fliJ, fliK, fliL, fliM, fliN, fliO, fliP, fliQ, fliR, fptA, fpvR, hcp/tssD, hcp1, hcpA, hsiA1, hsiB1/vipA/tssB, hsiC1/vipB/tssC, hsiE1, hsiF1/tssE, hsiG1/tssF, hsiH1/tssG, hsiJ1, icmF1/tssM1, icmH/tssL, lasA, lasB, lasI, lasR, lip1, mbtH-like, motA, motB, motC, motD, motY, mucA, mucB, mucC, mucD, mucE, mucP, pchA, pchB, pchC, pchD, pchE, pchF, pchG, pchH, pchI, pchR, pcr1, pcr2, pcr3, pcr4, pcrD, pcrG, pcrH, pcrR, pcrV, phzA1, phzA2, phzB1, phzB2, phzC1, phzD1, phzE1, phzF1, phzG2, phzH, phzM, phzS, pilB, pilE, pilF, pilG, pilH, pilI, pilJ, pilK, pilM, pilN, pilO, pilP, pilQ, pilR, pilS, pilT, pilU, pilV, pilW, pilX, pilY1, pilY2, pilZ, plcH, pldB/tle5b, popB, popD, popN, ppkA, pppA, pscB, pscC, pscD, pscE, pscF, pscG, pscH, pscI, pscJ, pscK, pscL, pscN, pscO, pscP, pscQ, pscR, pscS, pscT, pscU, ptxR, pvcA, pvcB, pvcC, pvcD, pvdA, pvdF, pvdG, pvdH, pvdL, pvdM, pvdN, pvdO, pvdP, pvdQ, pvdS, rhlA, rhlB, rhlC, rhlI, rhlR, rpoN, rpoS, spcS, stk1, stp1, tagF/pppB, tagQ, tagR, tagS, tagT, toxA, tse1, tse2, tse3, tse4, tse5/rhsP1, tse6, tse7, tssA, tssB, tssC, tssE, tssF, tssG, tssH, tssI, tssJ, tssK, tssM, vfr, vgrG, vgrG1a, vgrG1b, waaA, waaC, waaF, waaG, waaP, wbpM, xcpA/pilD, xcpP, xcpQ, xcpR, xcpS, xcpT, xcpU, xcpV, xcpW, xcpX, xcpY, xcpZ</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_013201115.1</strong></td>
+                        <td>319</td>
+                        <td>PA1458, PA1459, PA1464, PA1663, PA1664, PA1665, PA2359, PA2364, PA2383, PA2384, PA3142, PA3143, PA3157, PA3348, PA3349, PA4218, PA4219, PA4220, alg44, alg8, algA, algB, algC, algD, algE, algF, algG, algI, algJ, algK, algL, algP/algR3, algQ, algR, algU, algW, algX, algZ, aprA, cheY, cheZ, chpA, chpB, chpC, chpD, chpE, clpV1, crc, dotU1, exoS, exoT, exoY, exsA, exsB, exsC, exsD, exsE, fapA, fapB, fapC, fapD, fapE, fapF, fha1, fimL, fimT, fimU, fimV, fimX, fleI/flaG, fleN, fleP/fliT, fleQ, fleR, fleS, flgA, flgB, flgC, flgD, flgE, flgF, flgG, flgH, flgI, flgJ, flgK, flgL, flgM, flgN, flhA, flhB, flhF, fliA, fliC, fliD, fliE, fliF, fliG, fliH, fliI, fliJ, fliK, fliL, fliM, fliN, fliO, fliP, fliQ, fliR, fliS, fptA, fpvA, fpvI, fpvR, hcp/tssD, hcp1, hcpA, hisF2, hisH2, hsiA1, hsiB1/vipA/tssB, hsiC1/vipB/tssC, hsiE1, hsiF1/tssE, hsiG1/tssF, hsiH1/tssG, hsiJ1, icmF1/tssM1, icmH/tssL, lasA, lasB, lasI, lasR, lip1, mbtH-like, motA, motB, motC, motD, motY, mucA, mucB, mucC, mucD, mucE, mucP, pchA, pchB, pchC, pchD, pchE, pchF, pchG, pchH, pchI, pchR, pcr1, pcr2, pcr3, pcr4, pcrD, pcrG, pcrH, pcrR, pcrV, phzA1, phzA2, phzB1, phzB2, phzC1, phzD1, phzE1, phzF1, phzG2, phzH, phzM, phzS, pilB, pilC, pilE, pilF, pilG, pilH, pilI, pilJ, pilK, pilM, pilN, pilO, pilP, pilQ, pilR, pilS, pilT, pilU, pilV, pilW, pilX, pilY1, pilY2, pilZ, plcH, pldA/tle5a, pldB/tle5b, popB, popD, popN, ppkA, pppA, pscB, pscC, pscD, pscE, pscF, pscG, pscH, pscI, pscJ, pscK, pscL, pscN, pscO, pscP, pscQ, pscR, pscS, pscT, pscU, ptxR, pvcA, pvcB, pvcC, pvcD, pvdA, pvdD, pvdE, pvdF, pvdG, pvdH, pvdI, pvdJ, pvdL, pvdM, pvdN, pvdO, pvdP, pvdQ, pvdS, pvdY, rhlA, rhlB, rhlC, rhlI, rhlR, rpoN, rpoS, spcS, stk1, stp1, tagF/pppB, tagQ, tagR, tagS, tagT, toxA, tse1, tse2, tse3, tse4, tse5/rhsP1, tse6, tse7, tssA, tssB, tssC, tssE, tssF, tssG, tssH, tssI, tssJ, tssK, tssM, vfr, vgrG, vgrG1a, vgrG1b, vgrG2b, waaA, waaC, waaF, waaG, waaP, wbpA, wbpB, wbpD, wbpE, wbpG, wbpH, wbpI, wbpJ, wbpK, wbpL, wbpM, wzx, wzy, wzz, xcpA/pilD, xcpP, xcpQ, xcpR, xcpS, xcpT, xcpU, xcpV, xcpW, xcpX, xcpY, xcpZ</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_023093935.1</strong></td>
+                        <td>295</td>
+                        <td>PA1458, PA1459, PA1464, PA1663, PA1664, PA1665, PA2359, PA2364, PA2383, PA2384, PA3142, PA3143, PA3348, PA3349, PA4218, PA4219, PA4220, alg44, alg8, algA, algB, algC, algD, algE, algF, algG, algI, algJ, algK, algL, algP/algR3, algQ, algR, algU, algW, algX, algZ, aprA, cheY, cheZ, chpA, chpB, chpC, chpD, chpE, clpV1, crc, dotU1, exoS, exoT, exoY, exsA, exsB, exsC, exsD, exsE, fapA, fapB, fapC, fapD, fapE, fapF, fha1, fimL, fimT, fimU, fimV, fimX, fleI/flaG, fleN, fleP/fliT, fleQ, fleR, fleS, flgA, flgB, flgC, flgD, flgE, flgF, flgG, flgH, flgI, flgJ, flgK, flgL, flgM, flgN, flhA, flhB, flhF, fliA, fliC, fliD, fliE, fliF, fliG, fliH, fliI, fliJ, fliK, fliL, fliM, fliN, fliO, fliP, fliQ, fliR, fliS, fptA, fpvI, fpvR, hcp/tssD, hcp1, hcpA, hsiA1, hsiB1/vipA/tssB, hsiC1/vipB/tssC, hsiE1, hsiF1/tssE, hsiG1/tssF, hsiH1/tssG, hsiJ1, icmF1/tssM1, icmH/tssL, lasA, lasB, lasI, lasR, lip1, mbtH-like, motA, motB, motC, motD, motY, mucA, mucB, mucC, mucD, mucE, mucP, pchA, pchB, pchC, pchD, pchE, pchF, pchG, pchH, pchI, pchR, pcr1, pcr2, pcr3, pcr4, pcrD, pcrG, pcrH, pcrR, pcrV, phzA1, phzA2, phzB1, phzB2, phzC1, phzD1, phzE1, phzF1, phzG2, phzH, phzM, phzS, pilB, pilE, pilF, pilG, pilH, pilI, pilJ, pilK, pilM, pilN, pilO, pilP, pilQ, pilR, pilS, pilT, pilU, pilV, pilW, pilX, pilY1, pilY2, pilZ, plcH, pldB/tle5b, popB, popD, popN, ppkA, pppA, pscB, pscC, pscD, pscE, pscF, pscG, pscH, pscI, pscJ, pscK, pscL, pscN, pscO, pscP, pscQ, pscR, pscS, pscT, pscU, ptxR, pvcA, pvcB, pvcC, pvcD, pvdA, pvdF, pvdG, pvdH, pvdL, pvdM, pvdN, pvdO, pvdP, pvdQ, pvdS, pvdY, rhlA, rhlB, rhlC, rhlI, rhlR, rpoN, rpoS, spcS, stk1, stp1, tagF/pppB, tagQ, tagR, tagS, tagT, toxA, tse1, tse2, tse3, tse4, tse5/rhsP1, tse6, tssA, tssB, tssC, tssE, tssF, tssG, tssH, tssI, tssJ, tssK, tssM, vfr, vgrG, vgrG1a, vgrG1b, vgrG2b, waaA, waaC, waaF, waaG, waaP, wbpM, xcpA/pilD, xcpP, xcpQ, xcpR, xcpS, xcpT, xcpU, xcpV, xcpW, xcpX, xcpY, xcpZ</td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">📈 Gene Frequency</h2>
+            <table class="gene-table">
+                <thead>
+                    <tr>
+                        <th>Gene</th>
+                        <th>Frequency</th>
+                        <th>Genomes</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr>
+                        <td><strong>exoT</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tagQ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tagR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tagS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tagT</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ppkA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pppA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tagF/pppB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>icmF1/tssM1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>dotU1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hsiJ1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>lip1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fha1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hsiA1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hsiB1/vipA/tssB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hsiC1/vipB/tssC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hcp1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hsiE1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hsiF1/tssE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hsiG1/tssF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hsiH1/tssG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>clpV1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>vgrG1a</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tse6</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>vgrG1b</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hcpA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilT</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilU</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilI</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilJ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilK</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>chpA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>chpB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>chpC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>chpD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>chpE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>vfr</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pchA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pchB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pchC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pchD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pchR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pchF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pchG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pchH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pchI</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fptA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA4220</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA4219</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA4218</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzG2</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzF1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzE1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzD1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzC1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzB1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzA1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzM</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mucE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>spcS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>exoS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>lasB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mucP</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>rpoS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algJ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algI</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algL</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algX</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algK</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>alg44</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>alg8</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>motY</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tse3</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>rhlA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>rhlB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>rhlR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>rhlI</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgN</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgM</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA3349</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA3348</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wbpM</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fimV</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpQ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpP</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpT</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpU</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpV</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpW</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpX</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpY</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpZ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilZ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tse4</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tse2</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tse5/rhsP1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdL</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mbtH-like</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdO</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdN</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdM</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdP</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fpvR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdQ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA2384</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA2383</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tssI</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tssH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tssG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tssF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tssE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hcp/tssD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tssC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tssB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA2364</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tssK</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>icmH/tssL</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tssM</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tssA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA2359</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ptxR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvcD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvcC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvcB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvcA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>exoY</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fapA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fapB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fapC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fapD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fapE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fapF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzB2</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phzA2</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>lasA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tse1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fimL</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscL</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscK</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscJ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscI</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>exsD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>exsA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>exsB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>exsE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>exsC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>popD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>popB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pcrH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pcrV</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pcrG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pcrR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pcrD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pcr4</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pcr3</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pcr2</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pcr1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>popN</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscN</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscO</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscP</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscQ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscT</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pscU</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>stk1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>stp1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tssJ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA1665</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA1664</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA1663</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>vgrG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA1464</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>motD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>motC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA1459</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA1458</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cheZ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cheY</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fleN</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flhF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flhA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flhB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliQ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliP</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliO</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliN</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliM</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliL</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliK</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>lasI</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>lasR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>aprA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>toxA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>rhlC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliJ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliI</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fleR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fleS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fleQ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgK</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgJ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgI</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA3142</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA3143</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>plcH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mucD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mucC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mucB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mucA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algU</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algW</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>rpoN</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>xcpA/pilD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fimT</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fimU</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilV</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilW</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilX</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilY1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilY2</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>motB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>motA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fimX</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>waaA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>waaP</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>waaG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>waaC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>waaF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilQ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilP</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilO</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilN</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilM</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pldB/tle5b</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algQ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algZ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>crc</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pchE</strong></td>
+                        <td>4</td>
+                        <td>GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>algP/algR3</strong></td>
+                        <td>4</td>
+                        <td>GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>vgrG2b</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdY</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fpvI</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fleP/fliT</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliS</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliD</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fleI/flaG</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fliC</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>flgL</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tse7</strong></td>
+                        <td>3</td>
+                        <td>GCF_001457615.1, GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdE</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fpvA</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdD</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdJ</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pvdI</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wbpL</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wbpK</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wbpJ</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wbpI</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wbpH</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wbpG</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hisF2</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hisH2</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wzx</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wzy</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wbpE</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wbpD</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA3157</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wbpB</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wbpA</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wzz</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pldA/tle5a</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pilC</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="footer">
+            <h3 style="color: #fff; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">👥 Contact Information</h3>
+            <p><strong>Author:</strong> Brown Beckley</p>
+            <p><strong>Email:</strong> brownbeckley94@gmail.com</p>
+            <p><strong>GitHub:</strong> <a href="https://github.com/bbeckley-hub" target="_blank">https://github.com/bbeckley-hub</a></p>
+            <p><strong>Affiliation:</strong> University of Ghana Medical School - Department of Medical Biochemistry</p>
+            <p style="margin-top: 20px; font-size: 0.9em; color: #ccc;">
+                Analysis performed using PseudoScope (ABRicate v1.2.0)
+            </p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,675 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PseudoScope ABRicate - CARD Database Summary</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #2c0b0e 0%, #4a1c20 50%, #6b2b2f 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #ffffff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .ascii-container {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            border: 2px solid #dc3545;
+        }
+        
+        .ascii-art {
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            line-height: 1.1;
+            white-space: pre;
+            color: #dc3545;
+            text-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
+            overflow-x: auto;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            color: #1f2937;
+            padding: 25px;
+            margin: 20px 0;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        .gene-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        .gene-table th, .gene-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .gene-table th {
+            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            color: white;
+            font-weight: 600;
+        }
+        
+        tr:hover { background-color: #f8f9fa; }
+        
+        .summary-stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin: 10px;
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .quote-container {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            text-align: center;
+            font-style: italic;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .footer {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-top: 40px;
+        }
+        
+        .footer a {
+            color: #dc3545;
+            text-decoration: none;
+        }
+        
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        .present { background-color: #d4edda; }
+    </style>
+    
+        <script>
+            let quotes = ["Pseudomonas aeruginosa: the master of adaptation. - Unknown", "The important thing is not to stop questioning. Curiosity has its own reason for existing. - Albert Einstein", "Science is not only a disciple of reason but also one of romance and passion. - Stephen Hawking", "Somewhere, something incredible is waiting to be known. - Carl Sagan", "In science, there are no shortcuts to truth. - Karl Popper", "Science knows no country, because knowledge belongs to humanity. - Louis Pasteur", "The science of today is the technology of tomorrow. - Edward Teller", "Nothing in life is to be feared, it is only to be understood. - Marie Curie", "Research is what I'm doing when I don't know what I'm doing. - Wernher von Braun"];
+            let currentQuote = 0;
+            
+            function rotateQuote() {
+                document.getElementById('science-quote').innerHTML = quotes[currentQuote];
+                currentQuote = (currentQuote + 1) % quotes.length;
+            }
+            
+            // Rotate every 10 seconds
+            setInterval(rotateQuote, 10000);
+            
+            // Initial display
+            document.addEventListener('DOMContentLoaded', function() {
+                rotateQuote();
+            });
+        </script>
+        
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="ascii-container">
+                <div class="ascii-art">
+    
+██████╗ ███████╗███████╗██╗   ██╗██████╗  ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗
+██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██╔═══██╗██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
+██████╔╝███████╗█████╗  ██║   ██║██║  ██║██║   ██║███████╗██║     ██║   ██║██████╔╝█████╗  
+██╔═══╝ ╚════██║██╔══╝  ██║   ██║██║  ██║██║   ██║╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝  
+██║     ███████║███████╗╚██████╔╝██████╔╝╚██████╔╝███████║╚██████╗╚██████╔╝██║     ███████╗
+╚═╝     ╚══════╝╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝
+</div>
+            </div>
+            
+            <div class="card">
+                <h1 style="color: #333; margin: 0; font-size: 2.5em;">🧬 PseudoScope ABRicate - CARD Database Summary</h1>
+                <p style="color: #666; font-size: 1.2em;">Cross-genome analysis of CARD database results</p>
+            </div>
+        </div>
+        
+        <div class="quote-container">
+            <div id="science-quote" style="font-size: 1.1em;"></div>
+        </div>
+        
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">📊 Database Overview</h2>
+            <div class="summary-stats">
+                <div class="stat-card">
+                    <h3>Total Hits</h3>
+                    <p style="font-size: 2em; margin: 0;">276</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Genomes</h3>
+                    <p style="font-size: 2em; margin: 0;">5</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Unique Genes</h3>
+                    <p style="font-size: 2em; margin: 0;">67</p>
+                </div>
+            </div>
+            <p><strong>Database:</strong> CARD</p>
+            <p><strong>Date:</strong> 2026-03-02 16:28:40</p>
+        </div>
+        
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">🔍 Genes by Genome</h2>
+            <table class="gene-table">
+                <thead>
+                    <tr>
+                        <th>Genome</th>
+                        <th>Gene Count</th>
+                        <th>Genes Detected</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr class="present">
+                        <td><strong>GCF_000981825.1</strong></td>
+                        <td>58</td>
+                        <td>AAC(6')-29b, AAC(6')-Ib7, APH(3')-IIb, ArmR, CARB-58, FosA, MexA, MexB, MexC, MexD, MexE, MexF, MexG, MexH, MexI, MexJ, MexK, MexV, MexW, MuxA, MuxB, MuxC, OXA-395, OpmB, OpmD, OpmH, OprJ, OprM, OprN, PDC-55, ParR, ParS, PmpM, Pseudomonas_aeruginosa_CpxR, Pseudomonas_aeruginosa_catB7, Pseudomonas_aeruginosa_emrE, Pseudomonas_aeruginosa_soxR, TriA, TriB, TriC, VIM-2, YajC, aadA2, arnA, basS, bcr-1, cprR, cprS, mexM, mexN, mexP, mexQ, mexX, mexY, opmE, qacEdelta1, rsmA, sul1</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_001457615.1</strong></td>
+                        <td>51</td>
+                        <td>APH(3')-IIb, ArmR, FosA, MexA, MexB, MexC, MexD, MexE, MexF, MexG, MexH, MexI, MexJ, MexK, MexV, MexW, MuxA, MuxB, MuxC, OXA-904, OpmB, OpmD, OpmH, OprJ, OprM, OprN, PDC-374, ParR, ParS, PmpM, Pseudomonas_aeruginosa_CpxR, Pseudomonas_aeruginosa_catB7, Pseudomonas_aeruginosa_emrE, Pseudomonas_aeruginosa_soxR, TriA, TriB, TriC, YajC, arnA, basS, bcr-1, cprR, cprS, mexM, mexN, mexP, mexQ, mexX, mexY, opmE, rsmA</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_002208645.1</strong></td>
+                        <td>56</td>
+                        <td>AAC(6')-I33, APH(3')-IIb, ArmR, FosA, MexA, MexB, MexC, MexD, MexE, MexF, MexG, MexH, MexI, MexJ, MexK, MexV, MexW, MuxA, MuxB, MuxC, OXA-2, OXA-396, OpmB, OpmD, OpmH, OprJ, OprM, OprN, PDC-374, ParR, ParS, PmpM, Pseudomonas_aeruginosa_CpxR, Pseudomonas_aeruginosa_catB7, Pseudomonas_aeruginosa_emrE, Pseudomonas_aeruginosa_soxR, TriA, TriB, TriC, YajC, aadA, arnA, basS, bcr-1, cprR, cprS, mexM, mexN, mexP, mexQ, mexX, mexY, opmE, qacEdelta1, rsmA, sul1</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_013201115.1</strong></td>
+                        <td>51</td>
+                        <td>APH(3')-IIb, ArmR, FosA, MexA, MexB, MexC, MexD, MexE, MexF, MexG, MexH, MexI, MexJ, MexK, MexV, MexW, MuxA, MuxB, MuxC, OXA-847, OpmB, OpmD, OpmH, OprJ, OprM, OprN, PDC-374, ParR, ParS, PmpM, Pseudomonas_aeruginosa_CpxR, Pseudomonas_aeruginosa_catB7, Pseudomonas_aeruginosa_emrE, Pseudomonas_aeruginosa_soxR, TriA, TriB, TriC, YajC, arnA, basS, bcr-1, cprR, cprS, mexM, mexN, mexP, mexQ, mexX, mexY, opmE, rsmA</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_023093935.1</strong></td>
+                        <td>57</td>
+                        <td>AAC(6')-29a, AAC(6')-29b, APH(3')-IIb, ArmR, FosA, KPC-3, MexA, MexB, MexC, MexD, MexE, MexF, MexG, MexH, MexI, MexJ, MexK, MexV, MexW, MuxA, MuxB, MuxC, OXA-395, OpmB, OpmD, OpmH, OprJ, OprM, OprN, PDC-55, ParR, ParS, PmpM, Pseudomonas_aeruginosa_CpxR, Pseudomonas_aeruginosa_catB7, Pseudomonas_aeruginosa_emrE, Pseudomonas_aeruginosa_soxR, TriA, TriB, TriC, VIM-2, YajC, arnA, basS, bcr-1, cprR, cprS, mexM, mexN, mexP, mexQ, mexX, mexY, opmE, qacEdelta1, rsmA, sul1</td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">📈 Gene Frequency</h2>
+            <table class="gene-table">
+                <thead>
+                    <tr>
+                        <th>Gene</th>
+                        <th>Frequency</th>
+                        <th>Genomes</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr>
+                        <td><strong>TriA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>TriB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>TriC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>OprM</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>OpmD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexI</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexG</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>bcr-1</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>APH(3')-IIb</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>YajC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ArmR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexJ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexK</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>arnA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexP</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexQ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>opmE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>Pseudomonas_aeruginosa_CpxR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cprS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cprR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MuxA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MuxB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MuxC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>OpmB</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>OprN</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexF</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>Pseudomonas_aeruginosa_soxR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexX</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexY</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ParR</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ParS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PmpM</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexN</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexM</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>FosA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>rsmA</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>Pseudomonas_aeruginosa_catB7</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexV</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexW</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>OprJ</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexD</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>MexC</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>basS</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>OpmH</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>Pseudomonas_aeruginosa_emrE</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>qacEdelta1</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>sul1</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PDC-374</strong></td>
+                        <td>3</td>
+                        <td>GCF_001457615.1, GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PDC-55</strong></td>
+                        <td>2</td>
+                        <td>GCF_000981825.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>AAC(6')-29b</strong></td>
+                        <td>2</td>
+                        <td>GCF_000981825.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>VIM-2</strong></td>
+                        <td>2</td>
+                        <td>GCF_000981825.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>OXA-395</strong></td>
+                        <td>2</td>
+                        <td>GCF_000981825.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>AAC(6')-Ib7</strong></td>
+                        <td>1</td>
+                        <td>GCF_000981825.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>CARB-58</strong></td>
+                        <td>1</td>
+                        <td>GCF_000981825.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>aadA2</strong></td>
+                        <td>1</td>
+                        <td>GCF_000981825.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>AAC(6')-29a</strong></td>
+                        <td>1</td>
+                        <td>GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>KPC-3</strong></td>
+                        <td>1</td>
+                        <td>GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>OXA-904</strong></td>
+                        <td>1</td>
+                        <td>GCF_001457615.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>AAC(6')-I33</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>aadA</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>OXA-2</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>OXA-396</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>OXA-847</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="footer">
+            <h3 style="color: #fff; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">👥 Contact Information</h3>
+            <p><strong>Author:</strong> Brown Beckley</p>
+            <p><strong>Email:</strong> brownbeckley94@gmail.com</p>
+            <p><strong>GitHub:</strong> <a href="https://github.com/bbeckley-hub" target="_blank">https://github.com/bbeckley-hub</a></p>
+            <p><strong>Affiliation:</strong> University of Ghana Medical School - Department of Medical Biochemistry</p>
+            <p style="margin-top: 20px; font-size: 0.9em; color: #ccc;">
+                Analysis performed using PseudoScope (ABRicate v1.2.0)
+            </p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,1581 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PseudoScope ABRicate - BACMET2 Database Summary</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #2c0b0e 0%, #4a1c20 50%, #6b2b2f 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #ffffff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .ascii-container {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            border: 2px solid #dc3545;
+        }
+        
+        .ascii-art {
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            line-height: 1.1;
+            white-space: pre;
+            color: #dc3545;
+            text-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
+            overflow-x: auto;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            color: #1f2937;
+            padding: 25px;
+            margin: 20px 0;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        .gene-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        .gene-table th, .gene-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .gene-table th {
+            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            color: white;
+            font-weight: 600;
+        }
+        
+        tr:hover { background-color: #f8f9fa; }
+        
+        .summary-stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin: 10px;
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .quote-container {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            text-align: center;
+            font-style: italic;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .footer {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-top: 40px;
+        }
+        
+        .footer a {
+            color: #dc3545;
+            text-decoration: none;
+        }
+        
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        .present { background-color: #d4edda; }
+    </style>
+    
+        <script>
+            let quotes = ["Pseudomonas aeruginosa: the master of adaptation. - Unknown", "The important thing is not to stop questioning. Curiosity has its own reason for existing. - Albert Einstein", "Science is not only a disciple of reason but also one of romance and passion. - Stephen Hawking", "Somewhere, something incredible is waiting to be known. - Carl Sagan", "In science, there are no shortcuts to truth. - Karl Popper", "Science knows no country, because knowledge belongs to humanity. - Louis Pasteur", "The science of today is the technology of tomorrow. - Edward Teller", "Nothing in life is to be feared, it is only to be understood. - Marie Curie", "Research is what I'm doing when I don't know what I'm doing. - Wernher von Braun"];
+            let currentQuote = 0;
+            
+            function rotateQuote() {
+                document.getElementById('science-quote').innerHTML = quotes[currentQuote];
+                currentQuote = (currentQuote + 1) % quotes.length;
+            }
+            
+            // Rotate every 10 seconds
+            setInterval(rotateQuote, 10000);
+            
+            // Initial display
+            document.addEventListener('DOMContentLoaded', function() {
+                rotateQuote();
+            });
+        </script>
+        
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="ascii-container">
+                <div class="ascii-art">
+    
+██████╗ ███████╗███████╗██╗   ██╗██████╗  ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗
+██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██╔═══██╗██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
+██████╔╝███████╗█████╗  ██║   ██║██║  ██║██║   ██║███████╗██║     ██║   ██║██████╔╝█████╗  
+██╔═══╝ ╚════██║██╔══╝  ██║   ██║██║  ██║██║   ██║╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝  
+██║     ███████║███████╗╚██████╔╝██████╔╝╚██████╔╝███████║╚██████╗╚██████╔╝██║     ███████╗
+╚═╝     ╚══════╝╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝
+</div>
+            </div>
+            
+            <div class="card">
+                <h1 style="color: #333; margin: 0; font-size: 2.5em;">🧬 PseudoScope ABRicate - BACMET2 Database Summary</h1>
+                <p style="color: #666; font-size: 1.2em;">Cross-genome analysis of BACMET2 database results</p>
+            </div>
+        </div>
+        
+        <div class="quote-container">
+            <div id="science-quote" style="font-size: 1.1em;"></div>
+        </div>
+        
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">📊 Database Overview</h2>
+            <div class="summary-stats">
+                <div class="stat-card">
+                    <h3>Total Hits</h3>
+                    <p style="font-size: 2em; margin: 0;">1680</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Genomes</h3>
+                    <p style="font-size: 2em; margin: 0;">5</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Unique Genes</h3>
+                    <p style="font-size: 2em; margin: 0;">218</p>
+                </div>
+            </div>
+            <p><strong>Database:</strong> BACMET2</p>
+            <p><strong>Date:</strong> 2026-03-02 16:28:40</p>
+        </div>
+        
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">🔍 Genes by Genome</h2>
+            <table class="gene-table">
+                <thead>
+                    <tr>
+                        <th>Genome</th>
+                        <th>Gene Count</th>
+                        <th>Genes Detected</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr class="present">
+                        <td><strong>GCF_000981825.1</strong></td>
+                        <td>191</td>
+                        <td>G2alt-BAC0490, PA0320-BAC0297, acn-BAC0003, actP-BAC0570, actP/yjcG-BAC0564, actR-BAC0565, actS-BAC0566, adeH-BAC0016, adeL-BAC0508, arsB-BAC0031, arsB-BAC0579, arsC-BAC0583, arsC-BAC0584, arsH-BAC0034, arsR-BAC0589, arsT-BAC0714, baeR-BAC0039, baeR-BAC0596, bcr-BAC0041, bfrA-BAC0048, blt-BAC0050, cadR-BAC0058, cepA-BAC0061, chrA-BAC0026, chrA-BAC0063, chrB-BAC0027, cinA-BAC0067, comR/ycfQ-BAC0076, copA-BAC0077, copA-BAC0716, copB-BAC0626, copB-BAC0718, copC-BAC0738, copD-BAC0640, copF-BAC0747, copG-BAC0717, copR-BAC0083, copR-BAC0638, copR-BAC0719, copR-BAC0753, copS-BAC0637, copS-BAC0720, corA-BAC0086, corB-BAC0643, corC-BAC0088, corD-BAC0644, corR-BAC0089, cpxR-BAC0533, cueA-BAC0102, cusA/ybdE-BAC0107, cusS-BAC0112, cutE/lnt-BAC0115, czcC-BAC0121, czcD-BAC0122, czcR-BAC0125, czcS-BAC0126, czrA-BAC0130, czrB-BAC0131, dpsA-BAC0135, dsbC-BAC0138, emhR-BAC0145, emrAsm-BAC0499, emrB-BAC0148, emrBsm-BAC0500, emrCsm-BAC0501, emrD-3-BAC0534, evgA-BAC0154, evgS-BAC0155, fabI-BAC0156, fabK-BAC0157, fabL/ygaA-BAC0158, fabV-BAC0159, farR-BAC0505, fbpA-BAC0160, fbpB-BAC0161, fbpC-BAC0162, fecD-BAC0163, fecE-BAC0164, fptA-BAC0168, fpvA-BAC0169, galE-BAC0755, gesB-BAC0179, gesC-BAC0180, glpF-BAC0181, hmrR-BAC0190, hupE2-BAC0484, ibpA-BAC0194, iclR-BAC0196, irlR-BAC0197, kpnE-BAC0476, mdeA-BAC0207, mdtA-BAC0645, mdtA/yegM-BAC0210, mdtB/yegN-BAC0211, mdtC/yegO-BAC0212, mdtG/yceE-BAC0215, mdtI/ydgE-BAC0216, mdtN/yjcR-BAC0220, merA-BAC0651, merA-BAC0652, merD-BAC0666, merD-BAC0668, merE-BAC0670, merE-BAC0671, merP-BAC0231, merP-BAC0678, merR-BAC0232, merR-BAC0689, merR2-BAC0684, merT-BAC0233, merT-BAC0692, mexA-BAC0234, mexB-BAC0235, mexC-BAC0236, mexD-BAC0237, mexE-BAC0238, mexF-BAC0239, mexI-BAC0240, mexJ-BAC0241, mexK-BAC0242, mexR-BAC0243, mexT-BAC0244, mexV-BAC0245, mexW-BAC0246, mexX-BAC0247, mexY-BAC0248, mgtA-BAC0642, mntH/yfeP-BAC0251, mntP/yebN-BAC0252, modB-BAC0599, modC-BAC0611, modE-BAC0608, mtrA-BAC0256, ncrA-BAC0698, nczA-BAC0267, nikA-BAC0270, nikB-BAC0271, nikC-BAC0272, nikD-BAC0273, nikE-BAC0274, norM/pmpM-BAC0284, nreB-BAC0285, oprJ-BAC0291, oprM/oprK-BAC0292, oprN-BAC0562, oscA-BAC0358, ostA/lptD-BAC0296, oxyRkp-BAC0536, pbrA-BAC0298, pbrT-BAC0302, perO-BAC0612, phoB-BAC0530, phoR-BAC0531, pitA-BAC0312, pmpM-BAC0313, pmrA-BAC0487, pmrB-BAC0488, pmrC-BAC0485, pstB-BAC0316, qacEdelta1-BAC0323, rcnR/yohL-BAC0332, recG-BAC0356, rpoS-BAC0335, ruvB-BAC0293, ruvB-BAC0355, silB-BAC0342, smdA-BAC0353, smeF-BAC0360, smfY-BAC0363, smrA-BAC0364, sodA-BAC0705, sodB-BAC0706, soxR-BAC0370, ssmE-BAC0377, sugE-BAC0378, tcrA-BAC0741, terC-BAC0388, tupC-BAC0607, vmeG-BAC0517, vmeI-BAC0519, vpoC-BAC0516, wtpC-BAC0604, ybtP-BAC0432, ybtQ-BAC0433, ydeP-BAC0438, yfeA-BAC0439, yieF-BAC0541, znuA/yebL-BAC0463, znuB/yebI-BAC0464, znuC/yebM-BAC0465, zraR/hydH-BAC0467</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_001457615.1</strong></td>
+                        <td>157</td>
+                        <td>G2alt-BAC0490, PA0320-BAC0297, acn-BAC0003, actP/yjcG-BAC0564, actR-BAC0565, actS-BAC0566, adeH-BAC0016, adeL-BAC0508, arsB-BAC0031, arsC-BAC0583, arsH-BAC0034, arsR-BAC0589, arsT-BAC0714, baeR-BAC0039, bcr-BAC0041, bfrA-BAC0048, blt-BAC0050, cadR-BAC0058, cepA-BAC0061, cinA-BAC0067, comR/ycfQ-BAC0076, copA-BAC0077, copB-BAC0626, copG-BAC0717, copR-BAC0083, copR-BAC0638, copR-BAC0719, copR-BAC0753, copS-BAC0637, corA-BAC0086, corB-BAC0643, corC-BAC0088, corD-BAC0644, corR-BAC0089, cpxR-BAC0533, cueA-BAC0102, cutE/lnt-BAC0115, czcC-BAC0121, czcD-BAC0122, czcR-BAC0125, czcS-BAC0126, czrA-BAC0130, czrB-BAC0131, dpsA-BAC0135, dsbC-BAC0138, emhR-BAC0145, emrAsm-BAC0499, emrB-BAC0148, emrBsm-BAC0500, emrCsm-BAC0501, emrD-3-BAC0534, evgA-BAC0154, evgS-BAC0155, fabI-BAC0156, fabK-BAC0157, fabL/ygaA-BAC0158, fabV-BAC0159, farR-BAC0505, fbpA-BAC0160, fbpB-BAC0161, fbpC-BAC0162, fecD-BAC0163, fecE-BAC0164, fptA-BAC0168, fpvA-BAC0169, galE-BAC0755, gesB-BAC0179, glpF-BAC0181, hmrR-BAC0190, hupE2-BAC0484, ibpA-BAC0194, iclR-BAC0196, irlR-BAC0197, irlS-BAC0198, kpnE-BAC0476, lmrS-BAC0535, mdeA-BAC0207, mdtA-BAC0645, mdtA/yegM-BAC0210, mdtB/yegN-BAC0211, mdtC/yegO-BAC0212, mdtG/yceE-BAC0215, mdtI/ydgE-BAC0216, mdtN/yjcR-BAC0220, merA-BAC0651, mexA-BAC0234, mexB-BAC0235, mexC-BAC0236, mexE-BAC0238, mexF-BAC0239, mexI-BAC0240, mexJ-BAC0241, mexK-BAC0242, mexR-BAC0243, mexT-BAC0244, mexV-BAC0245, mexW-BAC0246, mexX-BAC0247, mexY-BAC0248, mgtA-BAC0642, mntH/yfeP-BAC0251, mntP/yebN-BAC0252, modB-BAC0599, modC-BAC0611, modE-BAC0608, mtrA-BAC0256, nikA-BAC0270, nikB-BAC0271, nikC-BAC0272, nikD-BAC0273, nikE-BAC0274, norM/pmpM-BAC0284, nreB-BAC0285, oprJ-BAC0291, oprM/oprK-BAC0292, oprN-BAC0562, oscA-BAC0358, ostA/lptD-BAC0296, oxyRkp-BAC0536, pbrA-BAC0298, pbrT-BAC0302, perO-BAC0612, phoB-BAC0530, phoR-BAC0531, pitA-BAC0312, pmpM-BAC0313, pmrA-BAC0487, pmrB-BAC0488, pmrC-BAC0485, pstB-BAC0316, rcnR/yohL-BAC0332, recG-BAC0356, rpoS-BAC0335, ruvB-BAC0293, ruvB-BAC0355, smdA-BAC0353, smdB-BAC0354, smfY-BAC0363, smrA-BAC0364, sodB-BAC0706, soxR-BAC0370, ssmE-BAC0377, sugE-BAC0378, terC-BAC0388, tupC-BAC0607, vmeG-BAC0517, vpoC-BAC0516, wtpC-BAC0604, ybtP-BAC0432, ybtQ-BAC0433, ydeP-BAC0438, yfeA-BAC0439, yieF-BAC0541, znuA/yebL-BAC0463, znuB/yebI-BAC0464, znuC/yebM-BAC0465, zraR/hydH-BAC0467</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_002208645.1</strong></td>
+                        <td>202</td>
+                        <td>G2alt-BAC0490, PA0320-BAC0297, acn-BAC0003, actP/yjcG-BAC0564, actR-BAC0565, actS-BAC0566, adeH-BAC0016, adeL-BAC0508, arsA-BAC0571, arsB-BAC0031, arsB-BAC0579, arsC-BAC0583, arsC-BAC0584, arsD-BAC0587, arsH-BAC0034, arsR-BAC0589, arsT-BAC0714, baeR-BAC0039, baeR-BAC0596, bcr-BAC0041, bfrA-BAC0048, blt-BAC0050, cadR-BAC0058, cepA-BAC0061, chrA-BAC0063, cinA-BAC0067, comR/ycfQ-BAC0076, copA-BAC0077, copA-BAC0620, copA-BAC0716, copB-BAC0626, copC-BAC0738, copD-BAC0640, copF-BAC0747, copG-BAC0717, copR-BAC0083, copR-BAC0638, copR-BAC0719, copR-BAC0753, copS-BAC0637, copS-BAC0720, corA-BAC0086, corB-BAC0643, corC-BAC0088, corD-BAC0644, corR-BAC0089, cpxR-BAC0533, cueA-BAC0102, cusA/ybdE-BAC0107, cusB-BAC0108, cutE/lnt-BAC0115, czcC-BAC0121, czcD-BAC0122, czcR-BAC0125, czcS-BAC0126, czrA-BAC0130, czrB-BAC0131, dpsA-BAC0135, dsbC-BAC0138, emhC-BAC0144, emhR-BAC0145, emrAsm-BAC0499, emrB-BAC0148, emrBsm-BAC0500, emrCsm-BAC0501, emrD-3-BAC0534, evgA-BAC0154, evgS-BAC0155, fabI-BAC0156, fabK-BAC0157, fabL/ygaA-BAC0158, fabV-BAC0159, farR-BAC0505, fbpA-BAC0160, fbpB-BAC0161, fbpC-BAC0162, fecD-BAC0163, fecE-BAC0164, fptA-BAC0168, fpvA-BAC0169, galE-BAC0755, gesB-BAC0179, gesC-BAC0180, glpF-BAC0181, hmrR-BAC0190, hupE2-BAC0484, ibpA-BAC0194, iclR-BAC0196, irlR-BAC0197, kpnE-BAC0476, lmrS-BAC0535, mdeA-BAC0207, mdtA-BAC0645, mdtA/yegM-BAC0210, mdtB/yegN-BAC0211, mdtC/yegO-BAC0212, mdtG/yceE-BAC0215, mdtI/ydgE-BAC0216, mdtN/yjcR-BAC0220, merA-BAC0651, merA-BAC0652, merA-BAC0653, merC-BAC0664, merD-BAC0666, merD-BAC0668, merE-BAC0671, merE-BAC0672, merF-BAC0228, merP-BAC0231, merP-BAC0678, merR-BAC0232, merR1-BAC0683, merR2-BAC0684, merR2-BAC0688, merT-BAC0233, merT-BAC0690, merT-BAC0691, merT-BAC0692, mexA-BAC0234, mexB-BAC0235, mexC-BAC0236, mexD-BAC0237, mexE-BAC0238, mexF-BAC0239, mexI-BAC0240, mexJ-BAC0241, mexK-BAC0242, mexR-BAC0243, mexT-BAC0244, mexV-BAC0245, mexW-BAC0246, mexX-BAC0247, mexY-BAC0248, mgtA-BAC0642, mntH/yfeP-BAC0251, mntP/yebN-BAC0252, modB-BAC0599, modC-BAC0611, modE-BAC0608, mreA-BAC0255, mtrA-BAC0256, ncrA-BAC0698, nczA-BAC0267, nikA-BAC0270, nikB-BAC0271, nikC-BAC0272, nikD-BAC0273, nikE-BAC0274, norM/pmpM-BAC0284, nreB-BAC0285, oprJ-BAC0291, oprM/oprK-BAC0292, oprN-BAC0562, oscA-BAC0358, ostA/lptD-BAC0296, oxyRkp-BAC0536, pbrA-BAC0298, pbrT-BAC0302, perO-BAC0612, phoB-BAC0530, phoR-BAC0531, pitA-BAC0312, pmpM-BAC0313, pmrA-BAC0487, pmrB-BAC0488, pmrC-BAC0485, pstB-BAC0316, qacEdelta1-BAC0323, rcnR/yohL-BAC0332, recG-BAC0356, rpoS-BAC0335, ruvB-BAC0293, ruvB-BAC0355, silB-BAC0342, smdA-BAC0353, smfY-BAC0363, smrA-BAC0364, sodA-BAC0705, sodB-BAC0706, soxR-BAC0370, ssmE-BAC0377, sugE-BAC0378, tcrA-BAC0741, terA-BAC0386, terC-BAC0388, terD-BAC0389, terE-BAC0390, terZ-BAC0392, tupC-BAC0607, vmeT-BAC0524, vmeV-BAC0526, vpoC-BAC0516, wtpC-BAC0604, ybtP-BAC0432, ybtQ-BAC0433, ydeP-BAC0438, yfeA-BAC0439, yieF-BAC0541, znuA/yebL-BAC0463, znuB/yebI-BAC0464, znuC/yebM-BAC0465, zraR/hydH-BAC0467</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_013201115.1</strong></td>
+                        <td>173</td>
+                        <td>G2alt-BAC0490, PA0320-BAC0297, acn-BAC0003, actP/yjcG-BAC0564, actR-BAC0565, actS-BAC0566, adeH-BAC0016, adeL-BAC0508, arsB-BAC0031, arsC-BAC0583, arsH-BAC0034, arsR-BAC0589, arsT-BAC0714, baeR-BAC0039, baeR-BAC0596, bcr-BAC0041, bfrA-BAC0048, blt-BAC0050, cadR-BAC0058, cepA-BAC0061, cinA-BAC0067, comR/ycfQ-BAC0076, copA-BAC0077, copB-BAC0626, copF-BAC0747, copG-BAC0717, copR-BAC0083, copR-BAC0638, copR-BAC0719, copR-BAC0753, copS-BAC0637, corA-BAC0086, corB-BAC0643, corC-BAC0088, corD-BAC0644, corR-BAC0089, cpxR-BAC0533, cueA-BAC0102, cusA/ybdE-BAC0107, cusB-BAC0108, cutE/lnt-BAC0115, czcC-BAC0121, czcD-BAC0122, czcR-BAC0125, czcS-BAC0126, czrA-BAC0130, czrB-BAC0131, dpsA-BAC0135, dsbC-BAC0138, emhR-BAC0145, emrAsm-BAC0499, emrB-BAC0148, emrBsm-BAC0500, emrCsm-BAC0501, emrD-3-BAC0534, evgA-BAC0154, evgS-BAC0155, fabI-BAC0156, fabK-BAC0157, fabL/ygaA-BAC0158, fabV-BAC0159, farR-BAC0505, fbpA-BAC0160, fbpB-BAC0161, fbpC-BAC0162, fecD-BAC0163, fecE-BAC0164, fptA-BAC0168, fpvA-BAC0169, galE-BAC0755, gesB-BAC0179, glpF-BAC0181, hmrR-BAC0190, hupE-BAC0483, ibpA-BAC0194, iclR-BAC0196, irlR-BAC0197, kpnE-BAC0476, mdeA-BAC0207, mdtA-BAC0645, mdtA/yegM-BAC0210, mdtB/yegN-BAC0211, mdtC/yegO-BAC0212, mdtI/ydgE-BAC0216, mdtN/yjcR-BAC0220, merA-BAC0651, merA-BAC0652, merA-BAC0653, merD-BAC0668, merE-BAC0671, merP-BAC0678, merR-BAC0232, merR2-BAC0684, merR2-BAC0688, merT-BAC0690, merT-BAC0692, mexA-BAC0234, mexB-BAC0235, mexC-BAC0236, mexD-BAC0237, mexE-BAC0238, mexF-BAC0239, mexI-BAC0240, mexJ-BAC0241, mexK-BAC0242, mexR-BAC0243, mexT-BAC0244, mexV-BAC0245, mexW-BAC0246, mexX-BAC0247, mexY-BAC0248, mgtA-BAC0642, mmco-BAC0480, mntH/yfeP-BAC0251, mntP/yebN-BAC0252, modB-BAC0599, modC-BAC0611, modE-BAC0608, mrdH-BAC0254, mreA-BAC0255, mtrA-BAC0256, nikA-BAC0270, nikB-BAC0271, nikC-BAC0272, nikD-BAC0273, nikE-BAC0274, norM/pmpM-BAC0284, nreB-BAC0285, oprJ-BAC0291, oprM/oprK-BAC0292, oprN-BAC0562, oscA-BAC0358, ostA/lptD-BAC0296, oxyRkp-BAC0536, pbrA-BAC0298, pbrT-BAC0302, perO-BAC0612, phoB-BAC0530, phoR-BAC0531, pitA-BAC0312, pmpM-BAC0313, pmrA-BAC0487, pmrB-BAC0488, pmrC-BAC0485, pstB-BAC0316, rcnR/yohL-BAC0332, recG-BAC0356, rpoS-BAC0335, ruvB-BAC0293, ruvB-BAC0355, smdA-BAC0353, smeF-BAC0360, smfY-BAC0363, smrA-BAC0364, sodA-BAC0705, sodB-BAC0706, soxR-BAC0370, ssmE-BAC0377, sugE-BAC0378, terC-BAC0388, tupC-BAC0607, vmeT-BAC0524, vpoC-BAC0516, wtpC-BAC0604, ybtP-BAC0432, yddg/emrE-BAC0435, ydeP-BAC0438, yfeA-BAC0439, yieF-BAC0541, znuA/yebL-BAC0463, znuB/yebI-BAC0464, znuC/yebM-BAC0465, zraR/hydH-BAC0467</td>
+                    </tr>
+
+                    <tr class="present">
+                        <td><strong>GCF_023093935.1</strong></td>
+                        <td>183</td>
+                        <td>G2alt-BAC0490, PA0320-BAC0297, acn-BAC0003, actP/yjcG-BAC0564, actR-BAC0565, actS-BAC0566, adeH-BAC0016, adeL-BAC0508, arsB-BAC0031, arsB-BAC0579, arsC-BAC0583, arsC-BAC0584, arsH-BAC0034, arsR-BAC0589, arsT-BAC0714, baeR-BAC0039, baeR-BAC0596, bcr-BAC0041, bfrA-BAC0048, blt-BAC0050, cadR-BAC0058, cepA-BAC0061, chrA-BAC0026, chrA-BAC0063, chrB-BAC0027, cinA-BAC0067, comR/ycfQ-BAC0076, copA-BAC0077, copA-BAC0716, copB-BAC0626, copB-BAC0718, copC-BAC0738, copD-BAC0640, copF-BAC0747, copG-BAC0717, copR-BAC0083, copR-BAC0638, copR-BAC0719, copR-BAC0753, copS-BAC0637, copS-BAC0720, corA-BAC0086, corB-BAC0643, corC-BAC0088, corD-BAC0644, corR-BAC0089, cpxR-BAC0533, cueA-BAC0102, cusA/ybdE-BAC0107, cusS-BAC0112, cutE/lnt-BAC0115, czcC-BAC0121, czcD-BAC0122, czcR-BAC0125, czcS-BAC0126, czrA-BAC0130, czrB-BAC0131, dpsA-BAC0135, dsbC-BAC0138, emhR-BAC0145, emrAsm-BAC0499, emrB-BAC0148, emrBsm-BAC0500, emrCsm-BAC0501, emrD-3-BAC0534, evgA-BAC0154, fabI-BAC0156, fabK-BAC0157, fabL/ygaA-BAC0158, fabV-BAC0159, farR-BAC0505, fbpA-BAC0160, fbpB-BAC0161, fbpC-BAC0162, fecD-BAC0163, fecE-BAC0164, fptA-BAC0168, fpvA-BAC0169, galE-BAC0755, gesB-BAC0179, gesC-BAC0180, glpF-BAC0181, hmrR-BAC0190, hupE2-BAC0484, ibpA-BAC0194, iclR-BAC0196, irlR-BAC0197, kpnE-BAC0476, mdeA-BAC0207, mdtA-BAC0645, mdtA/yegM-BAC0210, mdtB/yegN-BAC0211, mdtC/yegO-BAC0212, mdtG/yceE-BAC0215, mdtI/ydgE-BAC0216, mdtN/yjcR-BAC0220, merA-BAC0651, merA-BAC0652, merD-BAC0666, merE-BAC0670, merP-BAC0231, merR-BAC0689, merR2-BAC0684, merT-BAC0233, mexA-BAC0234, mexB-BAC0235, mexC-BAC0236, mexD-BAC0237, mexE-BAC0238, mexF-BAC0239, mexI-BAC0240, mexJ-BAC0241, mexK-BAC0242, mexR-BAC0243, mexT-BAC0244, mexV-BAC0245, mexW-BAC0246, mexX-BAC0247, mexY-BAC0248, mgtA-BAC0642, mntH/yfeP-BAC0251, mntP/yebN-BAC0252, modB-BAC0599, modC-BAC0611, modE-BAC0608, mtrA-BAC0256, ncrA-BAC0698, nczA-BAC0267, nikA-BAC0270, nikB-BAC0271, nikC-BAC0272, nikD-BAC0273, nikE-BAC0274, norM/pmpM-BAC0284, nreB-BAC0285, oprJ-BAC0291, oprM/oprK-BAC0292, oprN-BAC0562, oscA-BAC0358, ostA/lptD-BAC0296, oxyRkp-BAC0536, pbrA-BAC0298, pbrT-BAC0302, perO-BAC0612, phoB-BAC0530, phoR-BAC0531, pitA-BAC0312, pmpM-BAC0313, pmrA-BAC0487, pmrB-BAC0488, pmrC-BAC0485, pstB-BAC0316, qacEdelta1-BAC0323, rcnR/yohL-BAC0332, recG-BAC0356, rpoS-BAC0335, ruvB-BAC0293, ruvB-BAC0355, silB-BAC0342, smdA-BAC0353, smeF-BAC0360, smfY-BAC0363, smrA-BAC0364, sodA-BAC0705, sodB-BAC0706, soxR-BAC0370, ssmE-BAC0377, sugE-BAC0378, tcrA-BAC0741, terC-BAC0388, tupC-BAC0607, vmeG-BAC0517, vmeI-BAC0519, vpoC-BAC0516, wtpC-BAC0604, ybtQ-BAC0433, ydeP-BAC0438, yfeA-BAC0439, yieF-BAC0541, znuA/yebL-BAC0463, znuB/yebI-BAC0464, znuC/yebM-BAC0465, zraR/hydH-BAC0467</td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">📈 Gene Frequency</h2>
+            <table class="gene-table">
+                <thead>
+                    <tr>
+                        <th>Gene</th>
+                        <th>Frequency</th>
+                        <th>Genomes</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr>
+                        <td><strong>evgA-BAC0154</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>adeL-BAC0508</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>arsT-BAC0714</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fpvA-BAC0169</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexJ-BAC0241</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexK-BAC0242</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fabL/ygaA-BAC0158</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>iclR-BAC0196</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>nikE-BAC0274</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>nikD-BAC0273</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>nikB-BAC0271</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>nikC-BAC0272</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexT-BAC0244</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>wtpC-BAC0604</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>modB-BAC0599</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>oscA-BAC0358</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>PA0320-BAC0297</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>czcD-BAC0122</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mdeA-BAC0207</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexR-BAC0243</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexA-BAC0234</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexB-BAC0235</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>oprM/oprK-BAC0292</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pitA-BAC0312</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>baeR-BAC0039</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fptA-BAC0168</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>modE-BAC0608</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>oxyRkp-BAC0536</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mtrA-BAC0256</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>corD-BAC0644</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ostA/lptD-BAC0296</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fbpC-BAC0162</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>bfrA-BAC0048</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>oprN-BAC0562</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexI-BAC0240</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexV-BAC0245</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fabK-BAC0157</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fecD-BAC0163</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fecE-BAC0164</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>smdA-BAC0353</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>bcr-BAC0041</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>farR-BAC0505</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cpxR-BAC0533</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>galE-BAC0755</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cutE/lnt-BAC0115</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>corC-BAC0088</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cepA-BAC0061</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cueA-BAC0102</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>emrCsm-BAC0501</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>perO-BAC0612</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>corB-BAC0643</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>dsbC-BAC0138</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pbrA-BAC0298</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cadR-BAC0058</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>rpoS-BAC0335</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>glpF-BAC0181</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>emhR-BAC0145</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>gesB-BAC0179</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>vpoC-BAC0516</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tupC-BAC0607</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mdtN/yjcR-BAC0220</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pmrC-BAC0485</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>sugE-BAC0378</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>actP/yjcG-BAC0564</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>smrA-BAC0364</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>emrBsm-BAC0500</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ibpA-BAC0194</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copR-BAC0719</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fabV-BAC0159</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>comR/ycfQ-BAC0076</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pstB-BAC0316</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mntP/yebN-BAC0252</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>emrAsm-BAC0499</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>emrB-BAC0148</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copG-BAC0717</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>soxR-BAC0370</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>arsH-BAC0034</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copS-BAC0637</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copR-BAC0753</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cinA-BAC0067</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copR-BAC0638</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>czcC-BAC0121</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>terC-BAC0388</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mdtA/yegM-BAC0210</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mdtB/yegN-BAC0211</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mdtC/yegO-BAC0212</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>adeH-BAC0016</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>czrB-BAC0131</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>czrA-BAC0130</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexF-BAC0239</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexE-BAC0238</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pmrB-BAC0488</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pmrA-BAC0487</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>znuC/yebM-BAC0465</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>yfeA-BAC0439</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>arsB-BAC0031</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>arsR-BAC0589</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merA-BAC0651</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copA-BAC0077</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copB-BAC0626</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>smfY-BAC0363</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexX-BAC0247</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexY-BAC0248</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>zraR/hydH-BAC0467</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>modC-BAC0611</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fabI-BAC0156</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copR-BAC0083</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>acn-BAC0003</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>kpnE-BAC0476</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mdtI/ydgE-BAC0216</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pmpM-BAC0313</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>corR-BAC0089</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>rcnR/yohL-BAC0332</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>czcR-BAC0125</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mdtA-BAC0645</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>yieF-BAC0541</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phoR-BAC0531</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>phoB-BAC0530</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>blt-BAC0050</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>emrD-3-BAC0534</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>G2alt-BAC0490</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ruvB-BAC0355</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>dpsA-BAC0135</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>arsC-BAC0583</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mntH/yfeP-BAC0251</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>sodB-BAC0706</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexW-BAC0246</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>actR-BAC0565</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>actS-BAC0566</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>nikA-BAC0270</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>oprJ-BAC0291</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexC-BAC0236</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>nreB-BAC0285</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fbpA-BAC0160</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>fbpB-BAC0161</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hmrR-BAC0190</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mgtA-BAC0642</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>irlR-BAC0197</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>czcS-BAC0126</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ssmE-BAC0377</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ruvB-BAC0293</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ydeP-BAC0438</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>pbrT-BAC0302</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>corA-BAC0086</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>norM/pmpM-BAC0284</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>recG-BAC0356</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>znuA/yebL-BAC0463</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>znuB/yebI-BAC0464</strong></td>
+                        <td>5</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ybtP-BAC0432</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ybtQ-BAC0433</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>evgS-BAC0155</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cusA/ybdE-BAC0107</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copF-BAC0747</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merR2-BAC0684</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mdtG/yceE-BAC0215</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merA-BAC0652</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>baeR-BAC0596</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>sodA-BAC0705</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mexD-BAC0237</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hupE2-BAC0484</strong></td>
+                        <td>4</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>vmeG-BAC0517</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_001457615.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>silB-BAC0342</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copD-BAC0640</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copC-BAC0738</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copA-BAC0716</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copS-BAC0720</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>tcrA-BAC0741</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>arsB-BAC0579</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>arsC-BAC0584</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>nczA-BAC0267</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>ncrA-BAC0698</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>smeF-BAC0360</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_013201115.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>qacEdelta1-BAC0323</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merD-BAC0666</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>gesC-BAC0180</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merE-BAC0671</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merD-BAC0668</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merP-BAC0678</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merT-BAC0692</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merR-BAC0232</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>chrA-BAC0063</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merP-BAC0231</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merT-BAC0233</strong></td>
+                        <td>3</td>
+                        <td>GCF_000981825.1, GCF_002208645.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>chrA-BAC0026</strong></td>
+                        <td>2</td>
+                        <td>GCF_000981825.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copB-BAC0718</strong></td>
+                        <td>2</td>
+                        <td>GCF_000981825.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merE-BAC0670</strong></td>
+                        <td>2</td>
+                        <td>GCF_000981825.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>vmeI-BAC0519</strong></td>
+                        <td>2</td>
+                        <td>GCF_000981825.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>chrB-BAC0027</strong></td>
+                        <td>2</td>
+                        <td>GCF_000981825.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merR-BAC0689</strong></td>
+                        <td>2</td>
+                        <td>GCF_000981825.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cusS-BAC0112</strong></td>
+                        <td>2</td>
+                        <td>GCF_000981825.1, GCF_023093935.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>lmrS-BAC0535</strong></td>
+                        <td>2</td>
+                        <td>GCF_001457615.1, GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>vmeT-BAC0524</strong></td>
+                        <td>2</td>
+                        <td>GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merR2-BAC0688</strong></td>
+                        <td>2</td>
+                        <td>GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mreA-BAC0255</strong></td>
+                        <td>2</td>
+                        <td>GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>cusB-BAC0108</strong></td>
+                        <td>2</td>
+                        <td>GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merT-BAC0690</strong></td>
+                        <td>2</td>
+                        <td>GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merA-BAC0653</strong></td>
+                        <td>2</td>
+                        <td>GCF_002208645.1, GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>actP-BAC0570</strong></td>
+                        <td>1</td>
+                        <td>GCF_000981825.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>irlS-BAC0198</strong></td>
+                        <td>1</td>
+                        <td>GCF_001457615.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>smdB-BAC0354</strong></td>
+                        <td>1</td>
+                        <td>GCF_001457615.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>arsA-BAC0571</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>arsD-BAC0587</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merE-BAC0672</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merF-BAC0228</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merT-BAC0691</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>copA-BAC0620</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>emhC-BAC0144</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>terE-BAC0390</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>terD-BAC0389</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>terA-BAC0386</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>terZ-BAC0392</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>vmeV-BAC0526</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merC-BAC0664</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>merR1-BAC0683</strong></td>
+                        <td>1</td>
+                        <td>GCF_002208645.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>yddg/emrE-BAC0435</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mrdH-BAC0254</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>mmco-BAC0480</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                    <tr>
+                        <td><strong>hupE-BAC0483</strong></td>
+                        <td>1</td>
+                        <td>GCF_013201115.1</td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="footer">
+            <h3 style="color: #fff; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">👥 Contact Information</h3>
+            <p><strong>Author:</strong> Brown Beckley</p>
+            <p><strong>Email:</strong> brownbeckley94@gmail.com</p>
+            <p><strong>GitHub:</strong> <a href="https://github.com/bbeckley-hub" target="_blank">https://github.com/bbeckley-hub</a></p>
+            <p><strong>Affiliation:</strong> University of Ghana Medical School - Department of Medical Biochemistry</p>
+            <p style="margin-top: 20px; font-size: 0.9em; color: #ccc;">
+                Analysis performed using PseudoScope (ABRicate v1.2.0)
+            </p>
+        </div>
+    </div>
+</body>
+</html>

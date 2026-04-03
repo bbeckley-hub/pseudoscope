@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PseudoScope PAST Batch Summary</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(135deg, #2c0b0e 0%, #4a1c20 50%, #6b2b2f 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #fff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container { max-width: 1600px; margin: 0 auto; }
+        .ascii-container {
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            border: 2px solid #dc3545;
+            overflow-x: auto;
+            text-align: center;
+        }
+        .ascii-art {
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            line-height: 1.1;
+            white-space: pre;
+            color: #dc3545;
+            text-shadow: 0 0 10px rgba(220,53,69,0.5);
+            display: inline-block;
+            text-align: left;
+        }
+        .quote-container {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            text-align: center;
+            border-left: 4px solid #dc3545;
+        }
+        .quote-text { font-size: 18px; font-style: italic; margin-bottom: 5px; }
+        .quote-author { font-size: 14px; color: #fbbf24; }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            flex: 1 1 200px;
+        }
+        .stat-card .value { font-size: 32px; font-weight: bold; }
+        .stat-card .label { font-size: 14px; opacity: 0.9; }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        #searchInput {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover { background: #c82333; }
+        .table-container {
+            max-height: 500px;
+            overflow-y: auto;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            color: #1f2937;
+            font-size: 14px;
+        }
+        th {
+            background: #dc3545;
+            color: white;
+            padding: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        td, th {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        tr:hover { background-color: #f8f9fa; }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+        }
+        .footer a { color: #dc3545; text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+        .timestamp { color: #fbbf24; }
+    </style>
+    <script>
+        function filterTable() {
+            const input = document.getElementById('searchInput');
+            const filter = input.value.toLowerCase();
+            const rows = document.querySelectorAll('#pastTable tbody tr');
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(filter) ? '' : 'none';
+            });
+        }
+        const quotes = [{"text": "Pseudomonas aeruginosa: the master of adaptation.", "author": "Unknown"}, {"text": "The important thing is not to stop questioning. Curiosity has its own reason for existing.", "author": "Albert Einstein"}, {"text": "Science is not only a disciple of reason but also one of romance and passion.", "author": "Stephen Hawking"}, {"text": "Somewhere, something incredible is waiting to be known.", "author": "Carl Sagan"}, {"text": "Nothing in life is to be feared, it is only to be understood.", "author": "Marie Curie"}, {"text": "Research is what I'm doing when I don't know what I'm doing.", "author": "Wernher von Braun"}, {"text": "The science of today is the technology of tomorrow.", "author": "Edward Teller"}];
+        let idx = 0;
+        function rotateQuote() {
+            const q = document.getElementById('quote-text');
+            const a = document.getElementById('quote-author');
+            if (q && a) {
+                idx = (idx + 1) % quotes.length;
+                q.innerText = `"${quotes[idx].text}"`;
+                a.innerText = `— ${quotes[idx].author}`;
+            }
+        }
+        setInterval(rotateQuote, 10000);
+    </script>
+</head>
+<body>
+<div class="container">
+    <div class="ascii-container"><div class="ascii-art">
+██████╗ ███████╗███████╗██╗   ██╗██████╗  ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗
+██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██╔═══██╗██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
+██████╔╝███████╗█████╗  ██║   ██║██║  ██║██║   ██║███████╗██║     ██║   ██║██████╔╝█████╗  
+██╔═══╝ ╚════██║██╔══╝  ██║   ██║██║  ██║██║   ██║╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝  
+██║     ███████║███████╗╚██████╔╝██████╔╝╚██████╔╝███████║╚██████╗╚██████╔╝██║     ███████╗
+╚═╝     ╚══════╝╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝
+</div></div>
+    <div class="quote-container">
+        <div id="quote-text" class="quote-text">"Somewhere, something incredible is waiting to be known."</div>
+        <div id="quote-author" class="quote-author">— Carl Sagan</div>
+    </div>
+    <div class="stats">
+        <div class="stat-card"><div class="value">5</div><div class="label">Samples</div></div>
+        <div class="stat-card"><div class="value">5</div><div class="label">Typed</div></div>
+        <div class="stat-card"><div class="value">0</div><div class="label">Unknown</div></div>
+    </div>
+    <div class="controls">
+        <input type="text" id="searchInput" placeholder="🔍 Search by sample, type, targets..." onkeyup="filterTable()">
+        <button onclick="document.getElementById('searchInput').value=''; filterTable();">Clear</button>
+    </div>
+    <div class="table-container">
+        <table id="pastTable">
+            <thead>
+                <tr><th>#</th><th>Sample</th><th>Type</th><th>Targets</th><th>Coverage</th><th>Hits</th><th>Comment</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                <td>1</td>
+                <td>GCF_000981825.1</td>
+                <td><strong>O12</strong></td>
+                <td>O12</td>
+                <td>100.00%</td>
+                <td>1</td>
+                <td></td>
+            </tr>
+<tr>
+                <td>2</td>
+                <td>GCF_001457615.1</td>
+                <td><strong>O6</strong></td>
+                <td>O6</td>
+                <td>100.00%</td>
+                <td>1</td>
+                <td></td>
+            </tr>
+<tr>
+                <td>3</td>
+                <td>GCF_002208645.1</td>
+                <td><strong>O6</strong></td>
+                <td>O6</td>
+                <td>100.00%</td>
+                <td>1</td>
+                <td></td>
+            </tr>
+<tr>
+                <td>4</td>
+                <td>GCF_013201115.1</td>
+                <td><strong>O5</strong></td>
+                <td>O2</td>
+                <td>100.00%</td>
+                <td>1</td>
+                <td></td>
+            </tr>
+<tr>
+                <td>5</td>
+                <td>GCF_023093935.1</td>
+                <td><strong>O12</strong></td>
+                <td>O12</td>
+                <td>100.00%</td>
+                <td>1</td>
+                <td></td>
+            </tr>
+
+            </tbody>
+        </table>
+    </div>
+    <div class="footer">
+        <p><strong>PSEUDOSCOPE</strong> — P. aeruginosa PAST Module</p>
+        <p>Author: <a href="mailto:brownbeckley94@gmail.com">Brown Beckley</a> | GitHub: <a href="https://github.com/bbeckley-hub" target="_blank">bbeckley-hub</a></p>
+        <p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
+        <p class="timestamp">Summary generated: 2026-03-02 15:49:59</p>
+    </div>
+</div>
+</body>
+</html>

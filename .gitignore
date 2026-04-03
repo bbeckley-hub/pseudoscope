@@ -1,0 +1,8 @@
+# Exclude bin, data, stx from amr_module
+modules/amr_module/bin/
+modules/amr_module/data/
+modules/amr_module/stx/
+
+# Exclude Python cache files
+*.pyc
+__pycache__/
