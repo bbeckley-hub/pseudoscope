@@ -26,3 +26,4 @@ dist/
 # OS files
 .DS_Store
 Thumbs.db
+pseudoscope/modules/amr_module/data/
