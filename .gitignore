@@ -1,5 +1,28 @@
-**/amr_module/bin/
-**/amr_module/data/
-**/amr_module/stx/
-*.pyc
+# AMR database (large)
+modules/amr_module/data/
+
+
+# Per-sample subdirectories created by modules (most are under the above, but just in case)
+**/GCF_*.*/
+
+# Python cache
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE / editor files
+.vscode/
+.idea/
+*.sublime-*
+*.swo
+
+# Build directories
+build/
+dist/
+*.egg-info/
+*.egg
+
+# OS files
+.DS_Store
+Thumbs.db

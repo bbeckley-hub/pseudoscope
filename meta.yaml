@@ -1,9 +1,6 @@
-{% set name = "pseudoscope" %}
-{% set version = "1.0.0" %}
-
 package:
-  name: {{ name|lower }}
-  version: {{ version }}
+  name: pseudoscope
+  version: 1.0.0
 
 source:
   path: .
@@ -11,7 +8,7 @@ source:
 build:
   noarch: python
   number: 0
-  script: "{{ PYTHON }} -m pip install . -vv"
+  script: " -m pip install . -vv"
   entry_points:
     - pseudoscope = pseudoscope.pseudoscope:main
 
@@ -22,7 +19,6 @@ requirements:
     - setuptools
   run:
     - python >=3.9
-    # Core Python packages
     - pandas>=1.5.0
     - biopython>=1.85
     - psutil>=5.9.0
@@ -30,21 +26,16 @@ requirements:
     - tqdm>=4.64.0
     - click>=8.0.0
     - pasty
-    # HTML parsing
     - beautifulsoup4>=4.11.0
     - lxml>=4.9.0
-    # Visualization
     - matplotlib>=3.5.0
     - seaborn>=0.12.0
     - scipy>=1.10.1
-    # Optional/extra (for full features)
     - plotly>=5.10.0
-    # Bioinformatic tools
     - abricate >=1.2.0
     - perl
     - any2fasta
     - blast >=2.13.0
-    # Perl modules
     - perl-moo
     - perl-list-moreutils
     - perl-json
@@ -54,22 +45,23 @@ requirements:
     - perl-getopt-long
     - perl-file-which
 
-commands:
-  - pseudoscope --help
+test:
+  commands:
+    - pseudoscope --help
 
 about:
   home: https://github.com/bbeckley-hub/pseudoscope
   license: MIT
   license_file: LICENSE
   summary: 'Pseudoscope: Comprehensive P. aeruginosa genomic typing pipeline with parallel execution'
-  description:
-    Kleboscope is a complete, automated genomic analysis pipeline for P. aeruginosa,
+  description: |
+    Pseudoscope is a complete, automated genomic analysis pipeline for P. aeruginosa,
     featuring parallel execution for rapid processing of bacterial genomes. The pipeline integrates
     multiple analysis modules into a unified workflow:
 
     • Quality Control (FASTA QC) – Comprehensive sequence validation
     • Multi‑Locus Sequence Typing (MLST) – Pasteur scheme
-    • K/O Locus Typing (Kaptive) – Capsule and lipopolysaccharide typing
+    • O Locus Typing (Pasty/ PAst) – lipopolysaccharide typing
     • Antimicrobial Resistance (AMR) – AMRfinderPlus and ABRicate databases
     • Virulence & Plasmid Profiling (ABRicate) – Multi‑database screening
     • Critical Genes Flagging – Priority markers for infection control
@@ -80,7 +72,6 @@ about:
     🔴 Carbapenemases (KPC, NDM, OXA‑48)
     🟠 Colistin (mcr)
     🟡 Tigecycline (tetX)
-    🟢 ICEKp Markers (ybt, clb, iro, rmp)
     🔵 Virulence Plasmid Markers (iro, iuc, rmp, rmpA2)
     🟣 Biocides & Heavy Metals (qac, sil, mer, ars, pco)
     ⚪ Adhesins (fim, mrk, ecp)
@@ -96,9 +87,8 @@ about:
     🎯 Comprehensive Gene Tracking – Resistance, virulence, plasmid, and environmental markers
 
     Designed for clinical microbiology, outbreak investigation, and genomic surveillance,
-    Kleboscope provides clinical labs and researchers with a complete solution for
-    K. pneumoniae genomic characterisation from raw sequencing data to publication‑ready reports.
-
+    pseudoscope provides clinical labs and researchers with a complete solution for
+    P. aeruginosa genomic characterisation from raw sequencing data to publication‑ready reports.
   doc_url: https://github.com/bbeckley-hub/pseudoscope
   dev_url: https://github.com/bbeckley-hub/pseudoscope
 
