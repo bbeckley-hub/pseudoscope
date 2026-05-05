@@ -21,16 +21,15 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/bbeckleyhub/pseudoscope)](https://hub.docker.com/r/bbeckleyhub/pseudoscope)
 [![Docker Image Size](https://img.shields.io/docker/image-size/bbeckleyhub/pseudoscope/latest)](https://hub.docker.com/r/bbeckleyhub/pseudoscope)
+
 [![Conda Downloads](https://img.shields.io/conda/dn/bbeckley-hub/pseudoscope?label=Conda%20Downloads)](https://anaconda.org/bbeckley-hub/pseudoscope)
 [![GitHub Stars](https://img.shields.io/github/stars/bbeckley-hub/pseudoscope)](https://github.com/bbeckley-hub/pseudoscope/stargazers)
 [![GitHub Issues](https://img.shields.io/github/issues/bbeckley-hub/pseudoscope)](https://github.com/bbeckley-hub/pseudoscope/issues)
-
 ![Version](https://anaconda.org/bbeckley-hub/pseudoscope/badges/version.svg)
 ![Latest Release Date](https://anaconda.org/bbeckley-hub/pseudoscope/badges/latest_release_date.svg)
 ![Platforms](https://anaconda.org/bbeckley-hub/pseudoscope/badges/platforms.svg)
 ![License](https://anaconda.org/bbeckley-hub/pseudoscope/badges/license.svg)
 [![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](#)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-0A66C2?style=flat&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/brown-beckley-190315319)
 [![Stage](https://img.shields.io/badge/status-active-brightgreen)](#)
 
 [![Powered by 🧠](https://img.shields.io/badge/powered%20by-science%20🔬-purple)](https://github.com/bbeckley-hub/pseudoscope)
@@ -58,6 +57,7 @@
 [![Sample Report](https://img.shields.io/badge/📊-View_Sample_Report-blue)](https://htmlpreview.github.io/?https://)
 ![Profile Views](https://komarev.com/ghpvc/?username=bbeckley-hub&label=Profile%20Views&color=0e75b6&style=flat)
 [![Google Scholar](https://img.shields.io/badge/Google%20Scholar-Profile-4285F4?style=flat&logo=googlescholar&logoColor=white)](https://scholar.google.com/citations?user=CYNOsqIAAAAJ&hl=en)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-0A66C2?style=flat&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/brown-beckley-190315319)
 
 
 
