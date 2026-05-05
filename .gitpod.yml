@@ -1,0 +1,32 @@
+# .gitpod.yml
+image: gitpod/workspace-full
+
+tasks:
+  - name: Setup PseudoScope
+    init: |
+      conda config --add channels conda-forge
+      conda config --add channels bioconda
+      conda config --add channels bbeckley-hub  
+      conda create -n pseudoscope -c bbeckley-hub -c conda-forge -c bioconda pseudoscope python=3.9 -y
+      eval "$(conda shell.bash hook)"
+      conda activate pseudoscope
+      echo "conda activate pseudoscope" >> ~/.bashrc
+      echo "✅ PseudoScope development environment ready!"
+    command: |
+      echo "Ready to use PseudoScope!"
+      echo ""
+      echo "Quick test:"
+      echo "  pseudoscope --help"
+      echo ""
+      echo "Remember databases are not installed in Gitpod - run these first:"
+      echo "  abricate --setupdb"
+      echo "  pseudoscope --update-amr-db"
+
+ports:
+  - port: 8000
+    onOpen: open-preview
+
+vscode:
+  extensions:
+    - ms-python.python
+    - GitHub.vscode-pull-request-github
