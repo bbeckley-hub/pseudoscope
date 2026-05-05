@@ -24,9 +24,51 @@
 [![Conda Downloads](https://img.shields.io/conda/dn/bbeckley-hub/pseudoscope?label=Conda%20Downloads)](https://anaconda.org/bbeckley-hub/pseudoscope)
 [![GitHub Stars](https://img.shields.io/github/stars/bbeckley-hub/pseudoscope)](https://github.com/bbeckley-hub/pseudoscope/stargazers)
 [![GitHub Issues](https://img.shields.io/github/issues/bbeckley-hub/pseudoscope)](https://github.com/bbeckley-hub/pseudoscope/issues)
+
+![Version](https://anaconda.org/bbeckley-hub/pseudoscope/badges/version.svg)
+![Latest Release Date](https://anaconda.org/bbeckley-hub/pseudoscope/badges/latest_release_date.svg)
+![Platforms](https://anaconda.org/bbeckley-hub/pseudoscope/badges/platforms.svg)
+![License](https://anaconda.org/bbeckley-hub/pseudoscope/badges/license.svg)
+[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](#)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-0A66C2?style=flat&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/brown-beckley-190315319)
+[![Stage](https://img.shields.io/badge/status-active-brightgreen)](#)
+
+[![Powered by 🧠](https://img.shields.io/badge/powered%20by-science%20🔬-purple)](https://github.com/bbeckley-hub/pseudoscope)
+[![Coffee](https://img.shields.io/badge/built%20with-%E2%98%95%20coffee-orange)](https://github.com/bbeckley-hub/pseudoscope)
+[![Made with ❤️](https://img.shields.io/badge/made%20with-%E2%9D%A4%EF%B8%8F-red)](https://github.com/bbeckley-hub/pseudoscope)
+[![Open Source Love](https://badges.frapsoft.com/os/v1/open-source.svg?v=103)](https://github.com/ellerbrock/open-source-badges/)
 [![Made for Research](https://img.shields.io/badge/made%20for-Research-0066cc.svg)](https://github.com/bbeckley-hub)
-[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-pink.svg)](https://github.com/sponsors/bbeckley-hub)
-[![DOI](https://img.shields.io/badge/)]()
+
+
+[![Documentation](https://img.shields.io/badge/docs-mkdocs-526CFE?logo=materialformkdocs)](https://bbeckley-hub.github.io/pseudoscope)
+[![RST Badge](https://img.shields.io/badge/documentation-RST-4CAF50.svg)](https://www.sphinx-doc.org/)
+[![Examples](https://img.shields.io/badge/examples-Jupyter%20Notebooks-FA6A3F?logo=jupyter)](https://github.com/bbeckley-hub/pseudoscope/examples)
+[![Last Commit](https://img.shields.io/github/last-commit/bbeckley-hub/pseudoscope)](https://github.com/bbeckley-hub/pseudoscope/commits)
+[![Contributors](https://img.shields.io/github/contributors/bbeckley-hub/pseudoscope)](https://github.com/bbeckley-hub/pseudoscope/graphs/contributors)
+
+[![Security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
+[![Dependencies](https://img.shields.io/librariesio/github/bbeckley-hub/pseudoscope)](https://libraries.io/github/bbeckley-hub/pseudoscope)
+[![Snyk](https://img.shields.io/snyk/vulnerabilities/github/bbeckley-hub/pseudoscope)](https://snyk.io/test/github/bbeckley-hub/pseudoscope)
+
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Imports: isort](https://img.shields.io/badge/%20imports-isort-%231674b1?style=flat&labelColor=ef8336)](https://pycqa.github.io/isort/)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
+[![CI](https://img.shields.io/github/actions/workflow/status/bbeckley-hub/pseudoscope/ci.yml?branch=main&label=CI)](https://github.com/bbeckley-hub/pseudoscope/actions)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bbeckley-hub/pseudoscope/tests)
+[![Coverage](https://img.shields.io/codecov/c/github/bbeckley-hub/pseudoscope)](https://codecov.io/gh/bbeckley-hub/pseudoscope)
+
+[![Sample Report](https://img.shields.io/badge/📊-View_Sample_Report-blue)](https://htmlpreview.github.io/?https://)
+![Profile Views](https://komarev.com/ghpvc/?username=bbeckley-hub&label=Profile%20Views&color=0e75b6&style=flat)
+[![Google Scholar](https://img.shields.io/badge/Google%20Scholar-Profile-4285F4?style=flat&logo=googlescholar&logoColor=white)](https://scholar.google.com/citations?user=CYNOsqIAAAAJ&hl=en)
+
+
+
+![GitHub stats](https://github-readme-stats.vercel.app/api?username=bbeckley-hub&show_icons=true&theme=radical)
+![Top Langs](https://github-readme-stats.vercel.app/api/top-langs/?username=bbeckley-hub&layout=compact&theme=radical)
+[![GitHub Streak](https://streak-stats.demolab.com?user=bbeckley-hub&theme=radical&date_format=j%20M%5B%20Y%5D)](https://git.io/streak-stats)
+
+
 
 </div>
 
