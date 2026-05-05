@@ -45,10 +45,7 @@
 [![Examples](https://img.shields.io/badge/examples-Jupyter%20Notebooks-FA6A3F?logo=jupyter)](https://github.com/bbeckley-hub/pseudoscope/examples)
 [![Last Commit](https://img.shields.io/github/last-commit/bbeckley-hub/pseudoscope)](https://github.com/bbeckley-hub/pseudoscope/commits)
 [![Contributors](https://img.shields.io/github/contributors/bbeckley-hub/pseudoscope)](https://github.com/bbeckley-hub/pseudoscope/graphs/contributors)
-
 [![Security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
-[![Dependencies](https://img.shields.io/librariesio/github/bbeckley-hub/pseudoscope)](https://libraries.io/github/bbeckley-hub/pseudoscope)
-[![Snyk](https://img.shields.io/snyk/vulnerabilities/github/bbeckley-hub/pseudoscope)](https://snyk.io/test/github/bbeckley-hub/pseudoscope)
 
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Imports: isort](https://img.shields.io/badge/%20imports-isort-%231674b1?style=flat&labelColor=ef8336)](https://pycqa.github.io/isort/)
