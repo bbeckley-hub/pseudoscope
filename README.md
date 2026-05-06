@@ -477,6 +477,143 @@ If you use PseudoScope in your research, please cite:
 
 **Integrated tools** – please also cite the original authors of MLST, ABRicate, pasty, AMRFinderPlus, PubMLST, CARD, ResFinder, VFDB, and others (full citation list in the repository).
 
+Here is the updated **Third-Party Tool Citations** section with **Kaptive** replaced by **PAST/PASTY (Robert Petit)**. The new entry appears after AMRFinderPlus.
+
+---
+
+## 📚 **Third-Party Tool Citations**
+
+AcinetoScope integrates several essential third-party tools and databases. If you use AcinetoScope in your research, please also cite the following:
+
+#### **MLST (Torsten Seemann)**
+```bibtex
+@software{seemann_mlst_2018,
+  author = {Seemann, T.},
+  title = {MLST: Scan contig files against traditional PubMLST typing schemes},
+  year = {2018},
+  publisher = {GitHub},
+  url = {https://github.com/tseemann/mlst}
+}
+```
+
+#### **PubMLST (Jolley et al.)**
+```bibtex
+@article{jolley_pubmlst_2018,
+  author = {Jolley, K. A. and Bray, J. E. and Maiden, M. C. J.},
+  title = {Open-access bacterial population genomics: {BIGSdb} software, the {PubMLST.org} website and their applications},
+  journal = {Wellcome Open Research},
+  volume = {3},
+  pages = {124},
+  year = {2018},
+  doi = {10.12688/wellcomeopenres.14826.1}
+}
+```
+
+#### **ABRicate (Torsten Seemann)**
+```bibtex
+@software{seemann_abricate_2018,
+  author = {Seemann, T.},
+  title = {ABRicate: Mass screening of contigs for antimicrobial resistance and virulence genes},
+  year = {2018},
+  publisher = {GitHub},
+  url = {https://github.com/tseemann/abricate}
+}
+```
+
+#### **AMRFinderPlus (NCBI)**
+```bibtex
+@article{feldgarden_amrfinderplus_2021,
+  author = {Feldgarden, M. et al.},
+  title = {AMRFinderPlus and the Reference Gene Catalog facilitate examination of the genomic links among antimicrobial resistance, stress response, and virulence},
+  journal = {Scientific Reports},
+  volume = {11},
+  pages = {12728},
+  year = {2021},
+  doi = {10.1038/s41598-021-91456-0}
+}
+```
+
+#### **PAST/PASTY (Robert Petit)**
+```bibtex
+@software{petit_pasty_2021,
+  author = {Petit, R. A.},
+  title = {PASTY: A tool for serotyping of  Pseudomonas aeruginosa},
+  year = {2021},
+  publisher = {GitHub},
+  url = {https://github.com/rpetit3/pasty},
+  note = {PAST and PASTY  (for Pseudomonas aeruginosa)  }
+}
+```
+
+#### **CARD Database**
+```bibtex
+@article{alcock_card_2023,
+  author = {Alcock, B. P. et al.},
+  title = {CARD 2023: expanded curation, support for machine learning, and resistome prediction at the Comprehensive Antibiotic Resistance Database},
+  journal = {Nucleic Acids Research},
+  volume = {51},
+  number = {D1},
+  pages = {D690-D699},
+  year = {2023},
+  doi = {10.1093/nar/gkac920}
+}
+```
+
+#### **ResFinder**
+```bibtex
+@article{bortolaia_resfinder_2020,
+  author = {Bortolaia, V. et al.},
+  title = {ResFinder 4.0 for predictions of phenotypes from genotypes},
+  journal = {Journal of Antimicrobial Chemotherapy},
+  volume = {75},
+  number = {12},
+  pages = {3491-3500},
+  year = {2020},
+  doi = {10.1093/jac/dkaa345}
+}
+```
+
+#### **VFDB**
+```bibtex
+@article{chen_vfdb_2016,
+  author = {Chen, L. et al.},
+  title = {VFDB 2016: hierarchical and refined dataset for big data analysis—10 years on},
+  journal = {Nucleic Acids Research},
+  volume = {44},
+  number = {D1},
+  pages = {D694-D697},
+  year = {2016},
+  doi = {10.1093/nar/gkv1239}
+}
+```
+
+#### **PlasmidFinder**
+```bibtex
+@article{carattoli_plasmidfinder_2014,
+  author = {Carattoli, A. et al.},
+  title = {In silico detection and typing of plasmids using PlasmidFinder and plasmid multilocus sequence typing},
+  journal = {Antimicrobial Agents and Chemotherapy},
+  volume = {58},
+  number = {7},
+  pages = {3895-3903},
+  year = {2014},
+  doi = {10.1128/AAC.02412-14}
+}
+```
+
+#### **BacMet2**
+```bibtex
+@article{Pal_bacmet_2014,
+  author = {Pal, C. et al.},
+  title = {BacMet: antibacterial biocide and metal resistance genes database},
+  journal = {Nucleic Acids Research},
+  volume = {42},
+  pages = {D737-D743},
+  year = {2014},
+  doi = {10.1093/nar/gkt1252}
+}
+```
+
 ---
 
 ## 👥 **Authors & Contact**
