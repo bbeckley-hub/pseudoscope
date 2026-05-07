@@ -8,7 +8,7 @@ source:
 build:
   noarch: python
   number: 0
-  script: " -m pip install . -vv"
+  script: "{{ PYTHON }} -m pip install . -vv"
   entry_points:
     - pseudoscope = pseudoscope.pseudoscope:main
 

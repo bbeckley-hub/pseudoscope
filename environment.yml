@@ -1,4 +1,4 @@
-name:pseudoscope
+name: pseudoscope
 channels:
   - conda-forge
   - bioconda
