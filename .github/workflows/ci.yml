@@ -27,13 +27,12 @@ jobs:
         auto-update-conda: true
         python-version: ${{ matrix.python-version }}
     
-    - name: Install PseudoScope from bbeckley-hub channel
+    - name: Install PseudoScope from bioconda channel
       shell: bash -l {0}
       run: |
         conda config --add channels conda-forge
         conda config --add channels bioconda
-        conda config --add channels bbeckley-hub  
-        conda create -n pseudoscope -c bbeckley-hub -c conda-forge -c bioconda pseudoscope python=${{ matrix.python-version }} -y
+        conda create -n pseudoscope -c conda-forge -c bioconda pseudoscope python=${{ matrix.python-version }} -y
         conda activate pseudoscope
     
     - name: Test PseudoScope help
