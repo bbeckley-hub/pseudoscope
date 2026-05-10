@@ -12,12 +12,11 @@
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/bbeckley-hub/pseudoscope)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![Conda](https://img.shields.io/badge/conda-✓-green.svg)](https://anaconda.org/bbeckley-hub/pseudoscope)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/bbeckleyhub/pseudoscope)](https://hub.docker.com/r/bbeckleyhub/pseudoscope)
 [![Docker Image Size](https://img.shields.io/docker/image-size/bbeckleyhub/pseudoscope/latest)](https://hub.docker.com/r/bbeckleyhub/pseudoscope)
 
-[![Conda Downloads](https://img.shields.io/conda/dn/bbeckley-hub/pseudoscope?label=Conda%20Downloads)](https://anaconda.org/bbeckley-hub/pseudoscope)
+[![Conda](https://anaconda.org/bioconda/pseudoscope/badges/downloads.svg)](https://anaconda.org/bbeckley-hub/pseudoscope)
 [![GitHub Stars](https://img.shields.io/github/stars/bbeckley-hub/pseudoscope)](https://github.com/bbeckley-hub/pseudoscope/stargazers)
 [![GitHub Issues](https://img.shields.io/github/issues/bbeckley-hub/pseudoscope)](https://github.com/bbeckley-hub/pseudoscope/issues)
 ![Version](https://anaconda.org/bbeckley-hub/pseudoscope/badges/version.svg)
