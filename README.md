@@ -4,8 +4,6 @@
 
 <div align="center">
 
-<div align="center">
-
 # 🧬 PseudoScope
 
 ### **A species‑optimized computational pipeline for rapid, accessible *Pseudomonas aeruginosa* genomic typing and surveillance**
@@ -62,8 +60,6 @@
 ![GitHub stats](https://github-readme-stats.vercel.app/api?username=bbeckley-hub&show_icons=true&theme=radical)
 ![Top Langs](https://github-readme-stats.vercel.app/api/top-langs/?username=bbeckley-hub&layout=compact&theme=radical)
 [![GitHub Streak](https://streak-stats.demolab.com?user=bbeckley-hub&theme=radical&date_format=j%20M%5B%20Y%5D)](https://git.io/streak-stats)
-
-
 
 </div>
 
