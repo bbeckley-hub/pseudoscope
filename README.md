@@ -170,7 +170,7 @@ pseudoscope --help
 ### **Mamba (Faster)**
 
 ```bash
-mamba create -n pseudoscope -c conda-forge -c bioconda -c bbeckley-hub pseudoscope -y
+mamba create -n pseudoscope -c conda-forge -c bioconda pseudoscope -y
 mamba activate pseudoscope
 ```
 
