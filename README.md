@@ -459,8 +459,6 @@ If you use PseudoScope in your research, please cite:
 
 **Integrated tools** – please also cite the original authors of MLST, ABRicate, pasty, AMRFinderPlus, PubMLST, CARD, ResFinder, VFDB, and others (full citation list in the repository).
 
-Here is the updated **Third-Party Tool Citations** section with **Kaptive** replaced by **PAST/PASTY (Robert Petit)**. The new entry appears after AMRFinderPlus.
-
 ---
 
 ## 📚 **Third-Party Tool Citations**
