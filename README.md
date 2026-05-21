@@ -174,16 +174,6 @@ mamba create -n pseudoscope -c conda-forge -c bioconda pseudoscope -y
 mamba activate pseudoscope
 ```
 
-### **From Source**
-
-```bash
-git clone https://github.com/bbeckley-hub/pseudoscope.git
-cd pseudoscope
-conda env create -f environment.yml
-conda activate pseudoscope
-pip install -e .
-```
-
 ---
 
 ## 🐳 **Docker & Singularity (HPC Ready)**
