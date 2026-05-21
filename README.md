@@ -444,7 +444,7 @@ Every contribution, no matter how small, helps keep the project alive. Thank you
 
 If you use PseudoScope in your research, please cite:
 
-> Beckley, B. (2026). PseudoScope: a species‑optimized computational pipeline for rapid and accessible *Pseudomonas aeruginosa* genomic typing and surveillance. *Journal of Open Source Software* (submitted).
+> Beckley, B. (2026). PseudoScope: a species‑optimized computational pipeline for rapid and accessible *Pseudomonas aeruginosa* genomic typing and surveillance. *Journal of yet to add* (In preparaion).
 
 ```bibtex
 @software{beckley2026pseudoscope,
