@@ -128,7 +128,7 @@ PseudoScope runs entirely **locally** (or on HPC clusters), protects your data p
 
 ```bash
 # 1. Install PseudoScope
-conda create -n pseudoscope -c conda-forge -c bioconda -c bbeckley-hub pseudoscope -y
+conda create -n pseudoscope -c conda-forge -c bioconda pseudoscope -y
 conda activate pseudoscope
 
 # 2. Mandatory first‑time database setup
