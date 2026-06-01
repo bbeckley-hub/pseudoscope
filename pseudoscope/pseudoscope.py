@@ -5,7 +5,7 @@ Author: Brown Beckley <brownbeckley94@gmail.com>
 GitHub: bbeckley-hub
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
 Date: 2026-04-26
-Version: 1.0.0
+Version: 1.0.1
 """
 
 import os
@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 
 class Color:
