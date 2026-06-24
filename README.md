@@ -6,7 +6,7 @@
 
 # 🧬 PseudoScope
 
-### **A species‑optimized computational pipeline for rapid, accessible *Pseudomonas aeruginosa* genomic typing and surveillance**
+### **A species‑specific bioinformatics suite for rapid and accessible Pseudomonas aeruginosa genomic analysis**
 
 #### **Complete MLST, serotyping, AMR, virulence & visualisation in minutes — not hours**
 
