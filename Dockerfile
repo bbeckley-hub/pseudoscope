@@ -24,10 +24,6 @@ SHELL ["conda", "run", "-n", "pseudoscope", "/bin/bash", "-c"]
 # Run abricate database setup (one-time)
 RUN abricate --setupdb
 
-# Run AMR database setup using the module's own script
-RUN cd /opt/pseudoscope/pseudoscope/modules/amr_module && \
-    python p_amrfinder.py --update-db
-
 # Set entrypoint
 ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "pseudoscope", "pseudoscope"]
 CMD ["-h"]

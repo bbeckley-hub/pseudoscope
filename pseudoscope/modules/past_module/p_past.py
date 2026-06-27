@@ -4,7 +4,7 @@ PseudoScope - PAST Module for Pseudomonas aeruginosa serotyping
 Author: Brown Beckley <brownbeckley94@gmail.com>
 GitHub: bbeckley-hub
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2026-02-20 (Updated: 2026-04-23)
+Date: 2026-02-20 (Updated: 2026-06-25)
 """
 
 import os
@@ -21,16 +21,25 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+
 class PseudoPASTAnalyzer:
     """PAST (Pseudomonas aeruginosa serotyping) module using pasty (camlhmp-blast-regions)."""
 
-    def __init__(self):
+    def __init__(self, min_pident: Optional[int] = None, min_coverage: Optional[int] = None):
+        """
+        Initialise the PAST analyzer.
+
+        Args:
+            min_pident: Minimum percent identity (overrides default 95).
+            min_coverage: Minimum percent coverage (overrides default 95).
+        """
         self.pasty_bin = self._find_pasty()
         self.schema = "pasty"
-        self.schema_version = "2.2.1"  # from test output
+        self.schema_version = "2.2.1"
         self.camlhmp_version = "1.1.3"
+        self.min_pident = min_pident if min_pident is not None else 95
+        self.min_coverage = min_coverage if min_coverage is not None else 95
 
-        # ASCII art for reports
         self.ascii_art = r"""
 ██████╗ ███████╗███████╗██╗   ██╗██████╗  ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗
 ██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██╔═══██╗██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
@@ -40,10 +49,9 @@ class PseudoPASTAnalyzer:
 ╚═╝     ╚══════╝╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝
 """
 
-        # Science quotes
         self.science_quotes = [
             {"text": "Pseudomonas aeruginosa: the master of adaptation.", "author": "Unknown"},
-            {"text": "The important thing is not to stop questioning. Curiosity has its own reason for existing.", "author": "Albert Einstein"},
+            {"text": "The important thing is not to stop questioning.", "author": "Albert Einstein"},
             {"text": "Science is not only a disciple of reason but also one of romance and passion.", "author": "Stephen Hawking"},
             {"text": "Somewhere, something incredible is waiting to be known.", "author": "Carl Sagan"},
             {"text": "Nothing in life is to be feared, it is only to be understood.", "author": "Marie Curie"},
@@ -97,42 +105,40 @@ class PseudoPASTAnalyzer:
 
         print(f"🔬 Processing: {input_file.name}")
 
-        # Create sample output directory
         sample_dir = out_dir / prefix
         sample_dir.mkdir(parents=True, exist_ok=True)
 
-        # Run pasty
+        # Build pasty command with thresholds
         cmd = [
             self.pasty_bin,
             "-i", str(input_file),
             "-o", str(sample_dir),
             "--prefix", prefix,
-            "--min-pident", "90",
-            "--min-coverage", "90"
+            "--min-pident", str(self.min_pident),
+            "--min-coverage", str(self.min_coverage)
         ]
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
-            # Save stdout/stderr for debugging
             with open(sample_dir / "pasty_run.log", 'w') as f:
                 f.write(f"STDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}")
 
-            # Parse the main result file (prefix.tsv)
             main_tsv = sample_dir / f"{prefix}.tsv"
             if not main_tsv.exists():
                 raise FileNotFoundError(f"Expected main output file not found: {main_tsv}")
 
             result_data = self._parse_tsv(main_tsv, prefix, input_file.name)
 
-            # Parse details file if exists
             details_tsv = sample_dir / f"{prefix}.details.tsv"
             if details_tsv.exists():
                 result_data["details"] = self._parse_details_tsv(details_tsv)
             else:
                 result_data["details"] = []
 
-            # Generate reports
+            # Add threshold info to params
+            result_data["params"] = f"min_pident={self.min_pident}, min_coverage={self.min_coverage}"
+
             self._generate_reports(result_data, sample_dir)
 
             print(f"✅ {input_file.name} -> {result_data['type']}")
@@ -152,7 +158,6 @@ class PseudoPASTAnalyzer:
         if not rows:
             return self._empty_result(sample_name, "No data in main TSV")
         row = rows[0]
-        # Convert numeric fields
         try:
             coverage = float(row.get("coverage", 0))
         except:
@@ -171,7 +176,7 @@ class PseudoPASTAnalyzer:
             "schema": row.get("schema", self.schema),
             "schema_version": row.get("schema_version", self.schema_version),
             "camlhmp_version": row.get("camlhmp_version", self.camlhmp_version),
-            "params": row.get("params", ""),
+            "params": f"min_pident={self.min_pident}, min_coverage={self.min_coverage}",
             "comment": row.get("comment", "")
         }
 
@@ -181,13 +186,7 @@ class PseudoPASTAnalyzer:
         with open(tsv_path, 'r') as f:
             reader = csv.DictReader(f, delimiter='\t')
             for row in reader:
-                # Convert boolean-like status
-                status = row.get("status", "False")
-                if status.lower() == "true":
-                    status_bool = True
-                else:
-                    status_bool = False
-                # Convert numeric fields
+                status = row.get("status", "False").lower() == "true"
                 try:
                     coverage = float(row.get("coverage", 0))
                 except:
@@ -198,7 +197,7 @@ class PseudoPASTAnalyzer:
                     hits = 0
                 details.append({
                     "type": row.get("type", ""),
-                    "status": status_bool,
+                    "status": status,
                     "targets": row.get("targets", ""),
                     "missing": row.get("missing", ""),
                     "coverage": coverage,
@@ -218,7 +217,7 @@ class PseudoPASTAnalyzer:
             "schema": self.schema,
             "schema_version": self.schema_version,
             "camlhmp_version": self.camlhmp_version,
-            "params": "",
+            "params": f"min_pident={self.min_pident}, min_coverage={self.min_coverage}",
             "comment": error,
             "details": []
         }
@@ -261,8 +260,11 @@ class PseudoPASTAnalyzer:
             f.write('\n'.join(lines))
 
     def _write_tsv_report(self, data: Dict, out_dir: Path):
-        # One-line summary TSV
-        tsv_line = f"{data['sample']}\t{data.get('original_filename','')}\t{data['type']}\t{data['targets']}\t{data['coverage']:.2f}\t{data['hits']}\t{data['schema']}\t{data['schema_version']}\t{data['params']}\t{data.get('comment','')}\n"
+        tsv_line = (
+            f"{data['sample']}\t{data.get('original_filename','')}\t{data['type']}\t{data['targets']}\t"
+            f"{data['coverage']:.2f}\t{data['hits']}\t{data['schema']}\t{data['schema_version']}\t"
+            f"{data['params']}\t{data.get('comment','')}\n"
+        )
         with open(out_dir / "past_report.tsv", 'w') as f:
             f.write("Sample\tOriginal_File\tType\tTargets\tCoverage\tHits\tSchema\tSchema_Version\tParams\tComment\n")
             f.write(tsv_line)
@@ -277,7 +279,9 @@ class PseudoPASTAnalyzer:
                     "schema": data['schema'],
                     "schema_version": data['schema_version'],
                     "version": "1.0.0",
-                    "tool": "PseudoScope PAST"
+                    "tool": "PseudoScope PAST",
+                    "min_pident": self.min_pident,
+                    "min_coverage": self.min_coverage
                 },
                 "result": {
                     "type": data['type'],
@@ -291,10 +295,7 @@ class PseudoPASTAnalyzer:
             }, f, indent=2)
 
     def _write_html_report(self, data: Dict, out_dir: Path):
-        """Individual HTML report with ASCII art, quote, and footer."""
         quote = self.get_random_quote()
-
-        # Build details table (collapsible)
         details_rows = ""
         if data['details']:
             for d in data['details']:
@@ -451,7 +452,6 @@ class PseudoPASTAnalyzer:
         }}
     </style>
     <script>
-        // Rotate quotes
         const quotes = {json.dumps(self.science_quotes)};
         let idx = 0;
         function rotateQuote() {{
@@ -465,7 +465,6 @@ class PseudoPASTAnalyzer:
         }}
         setInterval(rotateQuote, 10000);
 
-        // Toggle details
         function toggleDetails() {{
             var content = document.getElementById("detailsContent");
             var btn = document.getElementById("detailsBtn");
@@ -534,7 +533,7 @@ class PseudoPASTAnalyzer:
             f.write(html)
 
     def process(self, input_path: str, out_dir: Path, cpus: int = 1):
-        """Main entry: process one or multiple files (automatically batch if >1)."""
+        """Main entry: process one or multiple files."""
         fasta_files = self.find_fasta_files(input_path)
         if not fasta_files:
             print("❌ No FASTA files found.")
@@ -544,7 +543,6 @@ class PseudoPASTAnalyzer:
 
         all_results = []
         if len(fasta_files) == 1:
-            # Single file, just process it directly (no thread overhead)
             res = self.run_pasty(fasta_files[0], out_dir, fasta_files[0].stem)
             all_results.append(res)
         else:
@@ -567,15 +565,13 @@ class PseudoPASTAnalyzer:
                     res = self.run_pasty(f, out_dir, f.stem)
                     all_results.append(res)
 
-        # ALWAYS create summary if at least one result (even single sample)
         if all_results:
             self._create_summary(all_results, out_dir)
 
         print(f"\n✅ Analysis complete. Results in: {out_dir}")
 
     def _create_summary(self, results: List[Dict], out_dir: Path):
-        """Generate summary CSV/JSON/HTML for one or more samples."""
-        # Prepare summary data
+        """Generate summary CSV/JSON/HTML."""
         summary_rows = []
         for r in results:
             summary_rows.append({
@@ -587,7 +583,6 @@ class PseudoPASTAnalyzer:
                 "Comment": r.get('comment', '')
             })
 
-        # Write CSV
         csv_path = out_dir / "past_summary.csv"
         with open(csv_path, 'w', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=["Sample", "Type", "Targets", "Coverage", "Hits", "Comment"])
@@ -595,7 +590,6 @@ class PseudoPASTAnalyzer:
             writer.writerows(summary_rows)
         print(f"✅ Summary CSV: {csv_path}")
 
-        # Write JSON
         json_path = out_dir / "past_summary.json"
         with open(json_path, 'w') as f:
             json.dump({
@@ -603,17 +597,17 @@ class PseudoPASTAnalyzer:
                     "analysis_date": datetime.now().isoformat(),
                     "schema": self.schema,
                     "schema_version": self.schema_version,
-                    "samples_analyzed": len(results)
+                    "samples_analyzed": len(results),
+                    "min_pident": self.min_pident,
+                    "min_coverage": self.min_coverage
                 },
                 "results": results
             }, f, indent=2)
         print(f"✅ Summary JSON: {json_path}")
 
-        # Write HTML
         self._write_batch_html(results, out_dir)
 
     def _write_batch_html(self, results: List[Dict], out_dir: Path):
-        """Batch summary HTML with ASCII art, quotes, search, scrollable table."""
         quote = self.get_random_quote()
         rows = ''
         for i, r in enumerate(results, 1):
@@ -828,15 +822,20 @@ Examples:
 
   # Use multiple threads
   python p_past.py -i "genomes/*.fasta" -o results/ --cpus 4
+
+  # Custom thresholds
+  python p_past.py -i "*.fna" -o results/ --min-pident 90 --min-coverage 85
         """
     )
     parser.add_argument('-i', '--input', required=True, help='Input FASTA file, directory, or glob pattern')
     parser.add_argument('-o', '--output', required=True, help='Output directory')
     parser.add_argument('--cpus', type=int, default=1, help='Number of CPU cores for parallel processing (default: 1)')
+    parser.add_argument('--min-pident', type=int, default=95, help='Minimum percent identity (default: 95)')
+    parser.add_argument('--min-coverage', type=int, default=95, help='Minimum percent coverage (default: 95)')
     args = parser.parse_args()
 
     try:
-        analyzer = PseudoPASTAnalyzer()
+        analyzer = PseudoPASTAnalyzer(min_pident=args.min_pident, min_coverage=args.min_coverage)
     except FileNotFoundError as e:
         print(f"❌ {e}")
         sys.exit(1)

@@ -3,7 +3,7 @@
 PseudoScope ABRicate Module - Comprehensive Gene Tracking for Pseudomonas aeruginosa
 Author: Brown Beckley <brownbeckley94@gmail.com>
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2026-01-28
+Date: 2026-01-28 (Updated: 2026-06-25)
 """
 
 import subprocess
@@ -13,7 +13,7 @@ import glob
 import logging
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import argparse
 import re
 from datetime import datetime
@@ -25,7 +25,17 @@ from collections import defaultdict, Counter
 class PseudoAbricateExecutor:
     """ABRicate executor for Pseudomonas aeruginosa with comprehensive HTML reporting - MAXIMUM SPEED"""
     
-    def __init__(self, cpus: int = None):
+    def __init__(self, cpus: Optional[int] = None, minid: int = 80, mincov: int = 80):
+        """
+        Initialize the executor.
+
+        Args:
+            cpus: Number of CPU cores (auto-detect if None).
+            minid: Minimum percent identity (default 80).
+            mincov: Minimum percent coverage (default 80).
+        """
+        self.minid = minid
+        self.mincov = mincov
         # Setup logging FIRST
         self.logger = self._setup_logging()
         
@@ -168,12 +178,14 @@ class PseudoAbricateExecutor:
         
         self.metadata = {
             "tool_name": "PseudoScope ABRicate for Pseudomonas aeruginosa",
-            "version": "1.0.0", 
+            "version": "1.1.0", 
             "authors": ["Brown Beckley"],
             "email": "brownbeckley94@gmail.com",
             "github": "https://github.com/bbeckley-hub",
             "affiliation": "University of Ghana Medical School - Department of Medical Biochemistry",
-            "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "min_identity": self.minid,
+            "min_coverage": self.mincov
         }
     
     def _setup_logging(self):
@@ -322,11 +334,12 @@ class PseudoAbricateExecutor:
             'abricate', 
             genome_file, 
             '--db', database,
-            '--minid', '80',
-            '--mincov', '80'
+            '--minid', str(self.minid),
+            '--mincov', str(self.mincov)
         ]
         
-        self.logger.info("Running ABRicate: %s --db %s", genome_name, database)
+        self.logger.info("Running ABRicate: %s --db %s (minid=%s, mincov=%s)", 
+                        genome_name, database, self.minid, self.mincov)
         
         try:
             with open(output_file, 'w') as outfile:
@@ -606,6 +619,7 @@ class PseudoAbricateExecutor:
             <div class="card">
                 <h1 style="color: #333; margin: 0; font-size: 2.5em;">🧬 PseudoScope ABRicate - {database.upper()} Database</h1>
                 <p style="color: #666; font-size: 1.2em;">Genome: {genome_name} | Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+                <p style="color: #666; font-size: 0.9em;">Min identity: {self.minid}% | Min coverage: {self.mincov}%</p>
             </div>
         </div>
         
@@ -1108,6 +1122,7 @@ class PseudoAbricateExecutor:
             <div class="card">
                 <h1 style="color: #333; margin: 0; font-size: 2.5em;">🧬 PseudoScope ABRicate Analysis Report</h1>
                 <p style="color: #666; font-size: 1.2em;">Comprehensive <em>Pseudomonas aeruginosa</em> Antimicrobial Resistance & Virulence Analysis</p>
+                <p style="color: #666; font-size: 0.9em;">Min identity: {self.minid}% | Min coverage: {self.mincov}%</p>
             </div>
         </div>
         
@@ -1546,7 +1561,9 @@ class PseudoAbricateExecutor:
                 "total_genomes": len(unique_genomes),
                 "total_hits": len(hits),
                 "analysis_date": self.metadata['analysis_date'],
-                "tool_version": self.metadata['version']
+                "tool_version": self.metadata['version'],
+                "min_identity": self.minid,
+                "min_coverage": self.mincov
             },
             "summary_statistics": {
                 "unique_genes": len(unique_genes),
@@ -1595,8 +1612,8 @@ class PseudoAbricateExecutor:
                 "databases_analyzed": self.required_databases,
                 "total_genomes": len(all_results),
                 "analysis_parameters": {
-                    "minimum_identity": 80,
-                    "minimum_coverage": 80
+                    "minimum_identity": self.minid,
+                    "minimum_coverage": self.mincov
                 }
             },
             "overall_summary": {
@@ -1967,6 +1984,7 @@ class PseudoAbricateExecutor:
             <div class="card">
                 <h1 style="color: #333; margin: 0; font-size: 2.5em;">🧬 PseudoScope ABRicate - {database.upper()} Database Summary</h1>
                 <p style="color: #666; font-size: 1.2em;">Cross-genome analysis of {database.upper()} database results</p>
+                <p style="color: #666; font-size: 0.9em;">Min identity: {self.minid}% | Min coverage: {self.mincov}%</p>
             </div>
         </div>
         
@@ -2204,6 +2222,9 @@ Examples:
   # Force specific number of CPU cores
   python p_abricate.py "*.fna" --cpus 4
 
+  # Custom thresholds for identity and coverage
+  python p_abricate.py "*.fna" --minid 85 --mincov 80
+
 MAXIMUM SPEED RESOURCE MANAGEMENT:
   • 1-4 cores: Uses ALL CPU cores (100% utilization)
   • 5-8 cores: Uses (cores-1) for optimal performance  
@@ -2220,6 +2241,10 @@ Supported FASTA extensions: .fasta, .fa, .fna, .faa
                        help='Number of CPU cores to use (default: auto-detect optimal for MAXIMUM SPEED)')
     parser.add_argument('--output', '-o', default='pseudo_abricate_results', 
                        help='Output directory (default: pseudo_abricate_results)')
+    parser.add_argument('--minid', type=int, default=80,
+                       help='Minimum percent identity for ABRicate hits (default: 80)')
+    parser.add_argument('--mincov', type=int, default=80,
+                       help='Minimum percent coverage for ABRicate hits (default: 80)')
     
     args = parser.parse_args()
     
@@ -2239,7 +2264,7 @@ Supported FASTA extensions: .fasta, .fa, .fna, .faa
     print(f"Affiliation: University of Ghana Medical School - Department of Medical Biochemistry")
     print("="*80)
     
-    executor = PseudoAbricateExecutor(cpus=args.cpus)
+    executor = PseudoAbricateExecutor(cpus=args.cpus, minid=args.minid, mincov=args.mincov)
     
     try:
         results = executor.process_multiple_genomes(args.pattern, args.output)

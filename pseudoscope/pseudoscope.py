@@ -4,8 +4,8 @@ PseudoScope - Unified Orchestrator for P. aeruginosa Analysis
 Author: Brown Beckley <brownbeckley94@gmail.com>
 GitHub: bbeckley-hub
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2026-04-26
-Version: 1.0.1
+Date: 2026-06-25
+Version: 1.1.0 (HPC‑friendly with temporary directory isolation)
 """
 
 import os
@@ -15,12 +15,15 @@ import argparse
 import subprocess
 import shutil
 import random
+import tempfile
+import logging
+import traceback
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 
 class Color:
@@ -46,10 +49,15 @@ class Color:
 
 
 class PseudoScopeOrchestrator:
-    def __init__(self, quiet: bool = False, verbose: bool = False):
+    """Main orchestrator: runs all analyses inside temporary directories."""
+
+    def __init__(self, quiet: bool = False, keep_temp: bool = False):
         self.base_dir = Path(__file__).parent
         self.quiet = quiet
-        self.verbose = verbose
+        self.keep_temp = keep_temp
+        self.logger = None
+        self.user_output_dir = None
+
         self.setup_colors()
         self.quotes = self._get_scientific_quotes()
         self.quote_colors = [
@@ -58,7 +66,6 @@ class PseudoScopeOrchestrator:
             Color.CYAN, Color.GREEN, Color.YELLOW, Color.MAGENTA
         ]
 
-        # Final output subdirectories (user's output folder)
         self.output_dirs = {
             'qc': 'fasta_qc_results',
             'mlst': 'mlst_results',
@@ -69,7 +76,6 @@ class PseudoScopeOrchestrator:
             'viz': 'GENIUS_PSEUDOMONAS_VISUAL_DASHBOARD'
         }
 
-        # HTML/TSV files required by the summary module
         self.summary_html_files = {
             'mlst_summary.html': 'mlst_results/mlst_summary.html',
             'past_summary.html': 'past_results/past_summary.html',
@@ -84,69 +90,72 @@ class PseudoScopeOrchestrator:
             'pseudo_megares_summary_report.html': 'pseudo_abricate_results/pseudo_megares_summary_report.html',
             'pseudo_ecoh_summary_report.html': 'pseudo_abricate_results/pseudo_ecoh_summary_report.html',
             'pseudo_bacmet2_summary_report.html': 'pseudo_abricate_results/pseudo_bacmet2_summary_report.html',
-            'pseudo_ecoli_vf_summary_report.html': 'pseudo_abricate_results/pseudo_ecoli_vf_summary_report.html'
+            'pseudo_ecoli_vf_summary_report.html': 'pseudo_abricate_results/pseudo_ecoli_vf_summary_report.html',
+            'mutation_summary.html': 'pseudo_amrfinder_results/mutation_summary.html',
         }
 
-    def setup_colors(self):
+    def setup_colors(self) -> None:
         self.color_info = Color.CYAN
         self.color_success = Color.BRIGHT_GREEN
         self.color_warning = Color.BRIGHT_YELLOW
         self.color_error = Color.BRIGHT_RED
-        self.color_highlight = Color.BRIGHT_CYAN
-        self.color_banner = Color.BRIGHT_MAGENTA
-        self.color_module = Color.BRIGHT_BLUE
-        self.color_sample = Color.GREEN
-        self.color_file = Color.YELLOW
         self.color_reset = Color.RESET
 
-    def _print(self, message: str, color: str = Color.RESET, bold: bool = False, force: bool = False):
+    def setup_logging(self, output_dir: Path) -> None:
+        log_file = output_dir / "pseudoscope_run.log"
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[logging.FileHandler(log_file, mode='w')]
+        )
+        self.logger = logging.getLogger("PseudoScope")
+        self.logger.info(f"Logging to {log_file}")
+        self.user_output_dir = output_dir
+
+    def _print(self, message: str, color: str = Color.RESET, bold: bool = False, force: bool = False) -> None:
         if self.quiet and not force:
             return
         style = Color.BOLD if bold else ''
         print(f"{style}{color}{message}{Color.RESET}")
 
-    def print_header(self, title: str, subtitle: str = ""):
-        if self.quiet:
-            return
-        print()
-        print(f"{Color.BOLD}{Color.BRIGHT_BLUE}{'='*80}{Color.RESET}")
-        print(f"{Color.BOLD}{Color.BRIGHT_CYAN}{' ' * 20}{title}{Color.RESET}")
-        if subtitle:
-            print(f"{Color.DIM}{Color.WHITE}{' ' * 22}{subtitle}{Color.RESET}")
-        print(f"{Color.BOLD}{Color.BRIGHT_BLUE}{'='*80}{Color.RESET}")
-        print()
+    def print_header(self, title: str, subtitle: str = "") -> None:
+        if not self.quiet:
+            print()
+            print(f"{Color.BOLD}{Color.BRIGHT_BLUE}{'='*80}{Color.RESET}")
+            print(f"{Color.BOLD}{Color.BRIGHT_CYAN}{' ' * 20}{title}{Color.RESET}")
+            if subtitle:
+                print(f"{Color.DIM}{Color.WHITE}{' ' * 22}{subtitle}{Color.RESET}")
+            print(f"{Color.BOLD}{Color.BRIGHT_BLUE}{'='*80}{Color.RESET}")
+            print()
+        if self.logger:
+            self.logger.info(f"=== {title} ===")
+            if subtitle:
+                self.logger.info(f"   {subtitle}")
 
-    def print_info(self, message: str):
+    def print_info(self, message: str) -> None:
         if not self.quiet:
             print(f"{self.color_info}[INFO]{Color.RESET} {message}")
+        if self.logger:
+            self.logger.info(message)
 
-    def print_success(self, message: str):
+    def print_success(self, message: str) -> None:
         if not self.quiet:
             print(f"{self.color_success}✓{Color.RESET} {message}")
+        if self.logger:
+            self.logger.info(f"SUCCESS: {message}")
 
-    def print_warning(self, message: str):
+    def print_warning(self, message: str) -> None:
         if not self.quiet:
             print(f"{self.color_warning}⚠️{Color.RESET} {message}")
+        if self.logger:
+            self.logger.warning(message)
 
-    def print_error(self, message: str):
+    def print_error(self, message: str) -> None:
         print(f"{self.color_error}✗{Color.RESET} {message}")
+        if self.logger:
+            self.logger.error(message)
 
-    def print_command(self, cmd_parts: List[str], cwd: Path):
-        """Show a short, readable version of the command when verbose."""
-        if not self.verbose:
-            return
-        # Try to make path relative to base_dir
-        rel_parts = []
-        for p in cmd_parts:
-            try:
-                rel = str(Path(p).relative_to(self.base_dir))
-                rel_parts.append(rel)
-            except ValueError:
-                rel_parts.append(p)
-        cmd_str = " ".join(rel_parts)
-        self._print(f"[RUN] {cmd_str}", color=Color.DIM, force=True)
-
-    def _get_scientific_quotes(self):
+    def _get_scientific_quotes(self) -> List[Dict[str, str]]:
         return [
             {"quote": "Pseudomonas aeruginosa: the master of adaptation.", "author": "Unknown"},
             {"quote": "The important thing is not to stop questioning.", "author": "Albert Einstein"},
@@ -181,7 +190,7 @@ class PseudoScopeOrchestrator:
             {"quote": "The microbiome is the last great frontier of human biology.", "author": "Rob Knight"},
         ]
 
-    def display_random_quote(self):
+    def display_random_quote(self) -> None:
         if self.quiet:
             return
         if not self.quotes:
@@ -198,28 +207,22 @@ class PseudoScopeOrchestrator:
         print()
 
     # ----------------------------------------------------------------------
-    # Mandatory setup checks
+    # Setup checks
     # ----------------------------------------------------------------------
     def check_abricate_databases(self) -> bool:
-        """Check if abricate databases are installed."""
         try:
             result = subprocess.run(["abricate", "--list"], capture_output=True, text=True)
-            if result.returncode == 0 and "ncbi" in result.stdout.lower():
-                return True
-            return False
+            return result.returncode == 0 and "ncbi" in result.stdout.lower()
         except FileNotFoundError:
             return False
 
     def check_amr_database(self) -> bool:
-        """Check if AMR database is present (look for latest dated folder)."""
         amr_module = self.base_dir / "modules" / "amr_module"
         db_root = amr_module / "data" / "amrfinder_db"
         if not db_root.exists():
             return False
-        # Look for a folder starting with 20
         for item in db_root.iterdir():
             if item.is_dir() and item.name.startswith("20"):
-                # Also check that version.txt or some file exists
                 if (item / "version.txt").exists() or any(item.glob("*.hmm")):
                     return True
         return False
@@ -235,7 +238,6 @@ class PseudoScopeOrchestrator:
         result = subprocess.run(cmd, cwd=amr_module, capture_output=True, text=True)
         if result.returncode == 0:
             self.print_success("AMR database updated successfully.")
-            # Show version
             ver_cmd = [sys.executable, str(script), "--db-version"]
             ver_result = subprocess.run(ver_cmd, cwd=amr_module, capture_output=True, text=True)
             if ver_result.returncode == 0:
@@ -282,259 +284,279 @@ class PseudoScopeOrchestrator:
             return f"*{list(exts)[0]}"
         return "*"
 
-    def copy_fasta_to_module(self, fasta_files: List[Path], module_path: Path):
-        module_path.mkdir(parents=True, exist_ok=True)
-        for f in fasta_files:
-            target = module_path / f.name
-            if not target.exists():
-                shutil.copy2(f, target)
+    # ----------------------------------------------------------------------
+    # Core temporary directory runner
+    # ----------------------------------------------------------------------
+    def run_module_in_temp(
+        self,
+        module_name: str,
+        fasta_files: List[Path],
+        cmd_parts: List[str],
+        result_subdir: Optional[str] = None,
+        extra_files: Optional[List[Tuple[str, str]]] = None,
+    ) -> Tuple[bool, str]:
+        module_orig = self.base_dir / "modules" / module_name
+        if not module_orig.exists():
+            return False, f"Module directory not found: {module_orig}"
 
-    def cleanup_module(self, module_path: Path, fasta_files: List[Path]):
+        temp_dir = tempfile.mkdtemp(prefix=f"pseudoscope_{module_name}_")
+        self.logger.info(f"Temporary directory for {module_name}: {temp_dir}")
+
         try:
+            shutil.copytree(module_orig, Path(temp_dir) / module_name, dirs_exist_ok=True)
+
             for f in fasta_files:
-                temp = module_path / f.name
-                if temp.exists():
-                    temp.unlink()
-            for d in self.output_dirs.values():
-                dir_path = module_path / d
-                if dir_path.exists():
-                    shutil.rmtree(dir_path)
-            for html in module_path.glob("*.html"):
-                html.unlink()
+                shutil.copy2(f, Path(temp_dir) / f.name)
+
+            script_name = Path(cmd_parts[1]).name if len(cmd_parts) > 1 else None
+            if not script_name:
+                return False, f"Could not determine script name from command: {cmd_parts}"
+
+            script_path = Path(temp_dir) / module_name / script_name
+            if not script_path.exists():
+                py_files = list((Path(temp_dir) / module_name).glob("*.py"))
+                if py_files:
+                    script_path = py_files[0]
+                else:
+                    return False, f"Could not locate script in {module_name}"
+
+            abs_cmd = [cmd_parts[0], str(script_path)] + cmd_parts[2:]
+
+            self.logger.info(f"Running {module_name}: {' '.join(abs_cmd)}")
+            result = subprocess.run(abs_cmd, cwd=temp_dir, capture_output=True, text=True)
+
+            if result.stdout:
+                self.logger.info(f"{module_name} STDOUT:\n{result.stdout}")
+            if result.stderr:
+                self.logger.warning(f"{module_name} STDERR:\n{result.stderr}")
+
+            if result.returncode != 0:
+                self.logger.error(f"{module_name} failed with return code {result.returncode}")
+                return False, f"Module {module_name} failed (rc={result.returncode})"
+
+            if result_subdir:
+                src = Path(temp_dir) / result_subdir
+                if src.exists():
+                    dst = self.user_output_dir / result_subdir
+                    if dst.exists():
+                        shutil.rmtree(dst)
+                    shutil.copytree(src, dst)
+                    self.logger.info(f"Results copied to {dst}")
+                else:
+                    self.logger.warning(f"Expected result subdir not found: {src}")
+
+            if extra_files:
+                for src_rel, dst_name in extra_files:
+                    src = Path(temp_dir) / src_rel
+                    if src.exists():
+                        dst = self.user_output_dir / dst_name
+                        shutil.copy2(src, dst)
+                        self.logger.info(f"Copied {dst_name} to output directory")
+                    else:
+                        self.logger.warning(f"Extra file not found: {src}")
+
+            return True, f"{module_name} completed successfully"
+
         except Exception as e:
-            self.print_warning(f"Cleanup issue in {module_path.name}: {e}")
+            self.logger.error(f"Exception in {module_name}: {e}\n{traceback.format_exc()}")
+            return False, f"Exception: {e}"
+
+        finally:
+            if not self.keep_temp:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                self.logger.info(f"Removed temporary directory: {temp_dir}")
 
     # ----------------------------------------------------------------------
     # Module runners
     # ----------------------------------------------------------------------
     def run_qc(self, fasta_files: List[Path], final_out: Path, threads: int) -> Tuple[bool, str]:
-        module_dir = self.base_dir / "modules" / "pa_qc_module"
-        script = module_dir / "p_qc.py"
-        if not script.exists():
-            return False, f"QC script missing: {script}"
-        self.copy_fasta_to_module(fasta_files, module_dir)
         pattern = self.get_file_pattern(fasta_files)
-        cmd = [sys.executable, str(script), pattern]
-        log = f"Running QC on {pattern}\n"
-        self.print_command(cmd, module_dir)
-        result = subprocess.run(cmd, cwd=module_dir, capture_output=True, text=True)
-        if result.returncode != 0:
-            log += "⚠️ QC had warnings/errors\n"
-            if result.stderr:
-                log += f"stderr: {result.stderr[:500]}\n"
-        else:
-            log += "✓ QC completed\n"
-        src = module_dir / self.output_dirs['qc']
-        dst = final_out / self.output_dirs['qc']
-        if src.exists():
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
-            log += f"✓ Results copied to {dst}\n"
-        else:
-            log += f"⚠️ QC results not found\n"
-        return result.returncode == 0, log
+        cmd = [sys.executable, "p_qc.py", pattern]
+        return self.run_module_in_temp("pa_qc_module", fasta_files, cmd, "fasta_qc_results")
 
     def run_mlst(self, fasta_files: List[Path], final_out: Path, threads: int) -> Tuple[bool, str]:
-        module_dir = self.base_dir / "modules" / "mlst_module"
-        script = module_dir / "p_mlst.py"
-        if not script.exists():
-            return False, f"MLST script missing: {script}"
-        self.copy_fasta_to_module(fasta_files, module_dir)
         pattern = self.get_file_pattern(fasta_files)
-        out_sub = self.output_dirs['mlst']
-        cmd = [sys.executable, str(script), "-i", pattern, "-o", out_sub, "--batch"]
-        log = f"Running MLST on {pattern}\n"
-        self.print_command(cmd, module_dir)
-        result = subprocess.run(cmd, cwd=module_dir, capture_output=True, text=True)
-        if result.returncode != 0:
-            log += "⚠️ MLST had warnings/errors\n"
-            if result.stderr:
-                log += f"stderr: {result.stderr[:500]}\n"
-        else:
-            log += "✓ MLST completed\n"
-        src = module_dir / out_sub
-        dst = final_out / out_sub
-        if src.exists():
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
-            log += f"✓ Results copied to {dst}\n"
-        else:
-            log += f"⚠️ MLST results not found\n"
-        return result.returncode == 0, log
+        cmd = [sys.executable, "p_mlst.py", "-i", pattern, "-o", "mlst_results", "--batch"]
+        return self.run_module_in_temp("mlst_module", fasta_files, cmd, "mlst_results")
 
-    def run_past(self, fasta_files: List[Path], final_out: Path, threads: int) -> Tuple[bool, str]:
-        module_dir = self.base_dir / "modules" / "past_module"
-        script = module_dir / "p_past.py"
-        if not script.exists():
-            return False, f"PAST script missing: {script}"
-        self.copy_fasta_to_module(fasta_files, module_dir)
+    def run_past(self, fasta_files: List[Path], final_out: Path, threads: int,
+                 min_pident: Optional[int] = None, min_coverage: Optional[int] = None) -> Tuple[bool, str]:
         pattern = self.get_file_pattern(fasta_files)
-        out_sub = self.output_dirs['past']
-        # Use shell to handle quoted glob pattern
-        shell_cmd = f'{sys.executable} {script} -i "{pattern}" -o {out_sub} --cpus {threads}'
-        log = f"Running PAST on {pattern}\n"
-        self.print_command([sys.executable, str(script), "-i", pattern, "-o", out_sub, "--cpus", str(threads)], module_dir)
-        result = subprocess.run(shell_cmd, cwd=module_dir, shell=True, capture_output=True, text=True)
-        if result.returncode != 0:
-            log += "⚠️ PAST had warnings/errors\n"
-            if result.stderr:
-                log += f"stderr: {result.stderr[:500]}\n"
-        else:
-            log += "✓ PAST completed\n"
-        src = module_dir / out_sub
-        dst = final_out / out_sub
-        if src.exists():
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
-            log += f"✓ Results copied to {dst}\n"
-        else:
-            log += f"⚠️ PAST results not found\n"
-        return result.returncode == 0, log
+        cmd = [sys.executable, "p_past.py", "-i", pattern, "-o", "past_results", "--cpus", str(threads)]
+        if min_pident is not None:
+            cmd.extend(["--min-pident", str(min_pident)])
+        if min_coverage is not None:
+            cmd.extend(["--min-coverage", str(min_coverage)])
+        return self.run_module_in_temp("past_module", fasta_files, cmd, "past_results")
 
-    def run_abricate(self, fasta_files: List[Path], final_out: Path, threads: int) -> Tuple[bool, str]:
-        # Mandatory abricate database check
+    def run_abricate(self, fasta_files: List[Path], final_out: Path, threads: int,
+                     minid: Optional[int] = None, mincov: Optional[int] = None) -> Tuple[bool, str]:
         if not self.check_abricate_databases():
-            msg = ("ABRicate databases not found. Please run 'abricate --setupdb' first.\n"
-                   "Then re-run your analysis.")
+            msg = "ABRicate databases not found. Please run 'abricate --setupdb' first."
             return False, msg
-        module_dir = self.base_dir / "modules" / "abricate_module"
-        script = module_dir / "p_abricate.py"
-        if not script.exists():
-            return False, f"ABRicate script missing: {script}"
-        self.copy_fasta_to_module(fasta_files, module_dir)
         pattern = self.get_file_pattern(fasta_files)
-        cmd = [sys.executable, str(script), pattern]
-        log = f"Running ABRicate on {pattern}\n"
-        self.print_command(cmd, module_dir)
-        result = subprocess.run(cmd, cwd=module_dir, capture_output=True, text=True)
-        if result.returncode != 0:
-            log += "⚠️ ABRicate had warnings/errors\n"
-            if result.stderr:
-                log += f"stderr: {result.stderr[:500]}\n"
-        else:
-            log += "✓ ABRicate completed\n"
-        src = module_dir / "pseudo_abricate_results"
-        dst = final_out / self.output_dirs['abricate']
-        if src.exists():
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
-            log += f"✓ Results copied to {dst}\n"
-        else:
-            log += f"⚠️ ABRicate results not found\n"
-        return result.returncode == 0, log
+        cmd = [sys.executable, "p_abricate.py", pattern]
+        if minid is not None:
+            cmd.extend(["--minid", str(minid)])
+        if mincov is not None:
+            cmd.extend(["--mincov", str(mincov)])
+        return self.run_module_in_temp("abricate_module", fasta_files, cmd, "pseudo_abricate_results")
 
-    def run_amr(self, fasta_files: List[Path], final_out: Path, threads: int) -> Tuple[bool, str]:
-        # Mandatory AMR database check
+    def run_amr(self, fasta_files: List[Path], final_out: Path, threads: int,
+                min_identity: Optional[float] = None, min_coverage: Optional[float] = None,
+                skip_mutations: bool = False) -> Tuple[bool, str]:
         if not self.check_amr_database():
-            msg = ("AMR database not found. Please run 'pseudoscope --update-amr-db' first.\n"
-                   "Then re-run your analysis.")
+            msg = "AMR database not found. Please run 'pseudoscope --update-amr-db' first."
             return False, msg
-        module_dir = self.base_dir / "modules" / "amr_module"
-        script = module_dir / "p_amrfinder.py"
-        if not script.exists():
-            return False, f"AMR script missing: {script}"
-        self.copy_fasta_to_module(fasta_files, module_dir)
         pattern = self.get_file_pattern(fasta_files)
-        cmd = [sys.executable, str(script), pattern]
-        log = f"Running AMRfinderPlus on {pattern}\n"
-        self.print_command(cmd, module_dir)
-        result = subprocess.run(cmd, cwd=module_dir, capture_output=True, text=True)
-        if result.returncode != 0:
-            log += "⚠️ AMR had warnings/errors\n"
-            if result.stderr:
-                log += f"stderr: {result.stderr[:500]}\n"
-        else:
-            log += "✓ AMR completed\n"
-        src = module_dir / "pseudo_amrfinder_results"
-        dst = final_out / self.output_dirs['amr']
-        if src.exists():
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
-            log += f"✓ Results copied to {dst}\n"
-        else:
-            log += f"⚠️ AMR results not found\n"
-        return result.returncode == 0, log
+        cmd = [sys.executable, "p_amrfinder.py", pattern]
+        if min_identity is not None:
+            cmd.extend(["--min-identity", str(min_identity)])
+        if min_coverage is not None:
+            cmd.extend(["--min-coverage", str(min_coverage)])
+        if skip_mutations:
+            cmd.append("--skip-mutations")
+        return self.run_module_in_temp(
+            "amr_module",
+            fasta_files,
+            cmd,
+            result_subdir="pseudo_amrfinder_results",
+            extra_files=[("pseudo_amrfinder_results/mutation_summary.html", "mutation_summary.html")]
+        )
 
     def run_summary(self, final_out: Path) -> Tuple[bool, str]:
-        module_dir = self.base_dir / "modules" / "summary_module"
-        script = module_dir / "p_ultimate.py"
-        if not script.exists():
-            return False, f"Summary script missing: {script}"
-        # Copy required summary files
-        log = "Copying summary files:\n"
-        for target_name, source_rel in self.summary_html_files.items():
-            src = final_out / source_rel
+        module_orig = self.base_dir / "modules" / "summary_module"
+        if not module_orig.exists():
+            return False, f"Summary module not found: {module_orig}"
+
+        temp_dir = tempfile.mkdtemp(prefix="pseudoscope_summary_")
+        self.logger.info(f"Temporary directory for summary: {temp_dir}")
+
+        try:
+            shutil.copytree(module_orig, Path(temp_dir) / "summary_module", dirs_exist_ok=True)
+
+            for target_name, source_rel in self.summary_html_files.items():
+                src = final_out / source_rel
+                if src.exists():
+                    shutil.copy2(src, Path(temp_dir) / target_name)
+                    self.logger.info(f"Copied {target_name} to temporary summary directory")
+                else:
+                    self.logger.warning(f"Required summary file not found: {src}")
+
+            script_path = Path(temp_dir) / "summary_module" / "p_ultimate.py"
+            if not script_path.exists():
+                return False, f"Summary script not found: {script_path}"
+
+            cmd = [sys.executable, str(script_path), "-i", "."]
+            self.logger.info(f"Running summary: {' '.join(cmd)}")
+            result = subprocess.run(cmd, cwd=temp_dir, capture_output=True, text=True)
+
+            if result.stdout:
+                self.logger.info(f"Summary STDOUT:\n{result.stdout}")
+            if result.stderr:
+                self.logger.warning(f"Summary STDERR:\n{result.stderr}")
+
+            if result.returncode != 0:
+                self.logger.error(f"Summary failed with return code {result.returncode}")
+                return False, f"Summary failed (rc={result.returncode})"
+
+            src = Path(temp_dir) / self.output_dirs['summary']
+            dst = final_out / self.output_dirs['summary']
             if src.exists():
-                shutil.copy2(src, module_dir / target_name)
-                log += f"  ✓ {target_name}\n"
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+                self.logger.info(f"Reports copied to {dst}")
             else:
-                log += f"  ✗ {target_name} (missing)\n"
-        # Run ultimate reporter
-        cmd = [sys.executable, str(script), "-i", "."]
-        self.print_command(cmd, module_dir)
-        result = subprocess.run(cmd, cwd=module_dir, capture_output=True, text=True)
-        log += result.stdout
-        if result.stderr:
-            log += f"stderr: {result.stderr[:500]}\n"
-        if result.returncode == 0:
-            log += "✓ Ultimate reporter completed\n"
-        else:
-            log += "⚠️ Ultimate reporter had issues\n"
-        src = module_dir / self.output_dirs['summary']
-        dst = final_out / self.output_dirs['summary']
-        if src.exists():
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
-            log += f"✓ Reports copied to {dst}\n"
-        else:
-            log += f"⚠️ Reports not found\n"
-        return result.returncode == 0, log
+                self.logger.warning("Summary reports not found")
+
+            return True, "Summary completed successfully"
+
+        except Exception as e:
+            self.logger.error(f"Summary exception: {e}\n{traceback.format_exc()}")
+            return False, f"Exception: {e}"
+
+        finally:
+            if not self.keep_temp:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                self.logger.info(f"Removed temporary directory: {temp_dir}")
 
     def run_viz(self, final_out: Path) -> Tuple[bool, str]:
-        module_dir = self.base_dir / "modules" / "viz_module"
-        script = module_dir / "p_visualizer.py"
-        if not script.exists():
-            return False, f"Visualizer script missing: {script}"
-        ultimate_dir = final_out / self.output_dirs['summary']
-        log = "Copying CSV files:\n"
-        if ultimate_dir.exists():
-            for csv_file in ultimate_dir.glob("*.csv"):
-                shutil.copy2(csv_file, module_dir / csv_file.name)
-                log += f"  ✓ {csv_file.name}\n"
-        else:
-            log += f"⚠️ Ultimate reports directory not found\n"
-        cmd = [sys.executable, str(script), "-i", "."]
-        self.print_command(cmd, module_dir)
-        result = subprocess.run(cmd, cwd=module_dir, capture_output=True, text=True)
-        log += result.stdout
-        if result.stderr:
-            log += f"stderr: {result.stderr[:500]}\n"
-        if result.returncode == 0:
-            log += "✓ Visualizer completed\n"
-        else:
-            log += "⚠️ Visualizer had issues\n"
-        dashboard = module_dir / "genius_pseudomonas_visual_dashboard.html"
-        dst = final_out / self.output_dirs['viz'] / "genius_pseudomonas_visual_dashboard.html"
-        if dashboard.exists():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(dashboard, dst)
-            log += f"✓ Dashboard copied to {dst}\n"
-        else:
-            log += f"⚠️ Dashboard not found\n"
-        return result.returncode == 0, log
+        module_orig = self.base_dir / "modules" / "viz_module"
+        if not module_orig.exists():
+            return False, f"Visualisation module not found: {module_orig}"
+
+        temp_dir = tempfile.mkdtemp(prefix="pseudoscope_viz_")
+        self.logger.info(f"Temporary directory for visualisation: {temp_dir}")
+
+        try:
+            shutil.copytree(module_orig, Path(temp_dir) / "viz_module", dirs_exist_ok=True)
+
+            ultimate_dir = final_out / self.output_dirs['summary']
+            if ultimate_dir.exists():
+                for csv_file in ultimate_dir.glob("*.csv"):
+                    shutil.copy2(csv_file, Path(temp_dir) / csv_file.name)
+                    self.logger.info(f"Copied {csv_file.name} to temporary viz directory")
+            else:
+                self.logger.warning("Ultimate reports directory not found")
+
+            script_path = Path(temp_dir) / "viz_module" / "p_visualizer.py"
+            if not script_path.exists():
+                return False, f"Visualizer script not found: {script_path}"
+
+            cmd = [sys.executable, str(script_path), "-i", "."]
+            self.logger.info(f"Running visualisation: {' '.join(cmd)}")
+            result = subprocess.run(cmd, cwd=temp_dir, capture_output=True, text=True)
+
+            if result.stdout:
+                self.logger.info(f"Visualisation STDOUT:\n{result.stdout}")
+            if result.stderr:
+                self.logger.warning(f"Visualisation STDERR:\n{result.stderr}")
+
+            if result.returncode != 0:
+                self.logger.error(f"Visualisation failed with return code {result.returncode}")
+                return False, f"Visualisation failed (rc={result.returncode})"
+
+            dashboard = Path(temp_dir) / "genius_pseudomonas_visual_dashboard.html"
+            dst_dir = final_out / self.output_dirs['viz']
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            if dashboard.exists():
+                shutil.copy2(dashboard, dst_dir / dashboard.name)
+                self.logger.info(f"Dashboard copied to {dst_dir / dashboard.name}")
+            else:
+                self.logger.warning("Dashboard not found")
+
+            return True, "Visualisation completed successfully"
+
+        except Exception as e:
+            self.logger.error(f"Visualisation exception: {e}\n{traceback.format_exc()}")
+            return False, f"Exception: {e}"
+
+        finally:
+            if not self.keep_temp:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                self.logger.info(f"Removed temporary directory: {temp_dir}")
 
     # ----------------------------------------------------------------------
-    # Main orchestration
+    # Full pipeline
     # ----------------------------------------------------------------------
-    def run_complete_analysis(self, input_path: str, output_dir: str, threads: int = 1,
-                              skip: Dict[str, bool] = None, skip_summary: bool = False,
-                              skip_viz: bool = False, update_amr_only: bool = False):
+    def run_complete_analysis(
+        self,
+        input_path: str,
+        output_dir: str,
+        threads: int = 1,
+        skip: Dict[str, bool] = None,
+        skip_summary: bool = False,
+        skip_viz: bool = False,
+        update_amr_only: bool = False,
+        abricate_minid: Optional[int] = None,
+        abricate_mincov: Optional[int] = None,
+        past_min_pident: Optional[int] = None,
+        past_min_coverage: Optional[int] = None,
+        amr_min_identity: Optional[float] = None,
+        amr_min_coverage: Optional[float] = None,
+        amr_skip_mutations: bool = False,
+    ) -> None:
         if update_amr_only:
             self.update_amr_database()
             return
@@ -548,6 +570,7 @@ class PseudoScopeOrchestrator:
 
         final_out = Path(output_dir)
         final_out.mkdir(parents=True, exist_ok=True)
+        self.setup_logging(final_out)
 
         fasta_files = self.find_fasta_files(input_path)
         if not fasta_files:
@@ -558,7 +581,6 @@ class PseudoScopeOrchestrator:
         for sub in self.output_dirs.values():
             (final_out / sub).mkdir(exist_ok=True)
 
-        # Show plan
         plan = [
             ("QC", not skip.get('qc', False)),
             ("MLST", not skip.get('mlst', False)),
@@ -572,6 +594,15 @@ class PseudoScopeOrchestrator:
         for name, enabled in plan:
             status = f"{Color.BRIGHT_GREEN}✅ ENABLED{Color.RESET}" if enabled else f"{Color.YELLOW}⏸️  SKIPPED{Color.RESET}"
             self._print(f"   {status} - {name}", force=True)
+            if self.logger:
+                self.logger.info(f"Plan: {name} {'ENABLED' if enabled else 'SKIPPED'}")
+
+        if abricate_minid is not None or abricate_mincov is not None:
+            self.print_info(f"ABRicate thresholds: minid={abricate_minid or 'default'}, mincov={abricate_mincov or 'default'}")
+        if past_min_pident is not None or past_min_coverage is not None:
+            self.print_info(f"PAST thresholds: min-pident={past_min_pident or 'default'}, min-coverage={past_min_coverage or 'default'}")
+        if amr_min_identity is not None or amr_min_coverage is not None or amr_skip_mutations:
+            self.print_info(f"AMR thresholds: min-identity={amr_min_identity or 'default'}, min-coverage={amr_min_coverage or 'default'}, skip-mutations={amr_skip_mutations}")
 
         # First batch: QC, MLST, PAST (parallel)
         batch1_tasks = []
@@ -580,7 +611,7 @@ class PseudoScopeOrchestrator:
         if not skip.get('mlst', False):
             batch1_tasks.append(("MLST", self.run_mlst))
         if not skip.get('past', False):
-            batch1_tasks.append(("PAST", self.run_past))
+            batch1_tasks.append(("PAST", lambda f, o, t: self.run_past(f, o, t, past_min_pident, past_min_coverage)))
 
         if batch1_tasks:
             self.print_info(f"Running {len(batch1_tasks)} analyses in parallel...")
@@ -594,11 +625,11 @@ class PseudoScopeOrchestrator:
                         success, log = future.result()
                         results[name] = (success, log)
                     except Exception as e:
+                        self.logger.error(f"Exception in {name}: {e}")
                         results[name] = (False, f"Exception: {e}")
             for name, _ in batch1_tasks:
                 success, log = results.get(name, (False, "No result"))
                 self.print_header(f"{name} Analysis")
-                # Show first few lines of log (without the "use --verbose" message)
                 lines = log.strip().split('\n')
                 for line in lines[:5]:
                     self._print(line, force=True)
@@ -616,7 +647,7 @@ class PseudoScopeOrchestrator:
         # Second batch: ABRicate
         if not skip.get('abricate', False):
             self.print_header("ABRICATE ANALYSIS", "Comprehensive Resistance & Virulence")
-            success, log = self.run_abricate(fasta_files, final_out, threads)
+            success, log = self.run_abricate(fasta_files, final_out, threads, abricate_minid, abricate_mincov)
             lines = log.strip().split('\n')
             for line in lines[:8]:
                 self._print(line, force=True)
@@ -631,7 +662,7 @@ class PseudoScopeOrchestrator:
         # Third batch: AMR
         if not skip.get('amr', False):
             self.print_header("AMR ANALYSIS", "Antimicrobial Resistance Gene Detection")
-            success, log = self.run_amr(fasta_files, final_out, threads)
+            success, log = self.run_amr(fasta_files, final_out, threads, amr_min_identity, amr_min_coverage, amr_skip_mutations)
             lines = log.strip().split('\n')
             for line in lines[:8]:
                 self._print(line, force=True)
@@ -643,7 +674,7 @@ class PseudoScopeOrchestrator:
         else:
             self.print_info("Skipping AMR analysis.")
 
-        # Ultimate summary
+        # Summary
         if not skip_summary:
             self.print_header("ULTIMATE REPORTER", "Gene‑centric Integration")
             success, log = self.run_summary(final_out)
@@ -673,12 +704,6 @@ class PseudoScopeOrchestrator:
         elif skip_summary:
             self.print_info("Skipping visualisation because summary was skipped.")
 
-        # Cleanup
-        for module_name in ['pa_qc_module', 'mlst_module', 'past_module', 'abricate_module', 'amr_module', 'summary_module', 'viz_module']:
-            mod_path = self.base_dir / "modules" / module_name
-            if mod_path.exists():
-                self.cleanup_module(mod_path, fasta_files)
-
         elapsed = datetime.now() - start_time
         self.print_header("ANALYSIS COMPLETE", f"Time: {str(elapsed).split('.')[0]}")
         self.print_success(f"All results in: {final_out}")
@@ -688,21 +713,23 @@ class PseudoScopeOrchestrator:
                 self.print_info(f"  📁 {subdir.name} ({cnt} files)")
         self.display_random_quote()
 
+        self.print_info("Please cite:")
+        self.print_info("Beckley B, Amarh V. PseudoScope: a species‑specific bioinformatics suite for rapid and accessible Pseudomonas aeruginosa genomic analysis. Github 2026 https://github.com/brown-beckley/pseudoscope")
+
 
 # -----------------------------------------------------------------------------
 # Coloured help function
 # -----------------------------------------------------------------------------
-def print_colored_help():
-    """Print a coloured help message."""
+def print_colored_help() -> None:
     usage = f"{Color.BRIGHT_CYAN}usage: pseudoscope [OPTIONS]{Color.RESET}"
-    description = f"{Color.BRIGHT_WHITE}PseudoScope: Complete P. aeruginosa genomic analysis pipeline{Color.RESET}"
+    description = f"{Color.BRIGHT_WHITE}PseudoScope: Complete P. aeruginosa genomic analysis pipeline (v{__version__}){Color.RESET}"
 
     options = [
         (f"{Color.BRIGHT_GREEN}-i INPUT, --input INPUT{Color.RESET}", f"Input FASTA file, directory, or glob pattern (e.g., \"{Color.BRIGHT_YELLOW}*.fna{Color.RESET}\")"),
         (f"{Color.BRIGHT_GREEN}-o OUTPUT, --output OUTPUT{Color.RESET}", "Output directory for results"),
         (f"{Color.BRIGHT_GREEN}-t THREADS, --threads THREADS{Color.RESET}", f"Number of threads (default: {Color.BRIGHT_YELLOW}2{Color.RESET})"),
-        (f"{Color.BRIGHT_GREEN}--quiet{Color.RESET}", "Suppress all non‑error output"),
-        (f"{Color.BRIGHT_GREEN}--verbose{Color.RESET}", "Show full command output from modules"),
+        (f"{Color.BRIGHT_GREEN}--quiet{Color.RESET}", "Suppress all non‑error console output"),
+        (f"{Color.BRIGHT_GREEN}--keep-temp{Color.RESET}", "Do not delete temporary directories (for debugging)"),
         (f"{Color.BRIGHT_GREEN}--version{Color.RESET}", "Show version and exit"),
         (f"{Color.BRIGHT_GREEN}--update-amr-db{Color.RESET}", "Update AMRfinderPlus database and exit"),
         (f"{Color.BRIGHT_GREEN}--skip-qc{Color.RESET}", "Skip FASTA QC"),
@@ -712,6 +739,13 @@ def print_colored_help():
         (f"{Color.BRIGHT_GREEN}--skip-amr{Color.RESET}", "Skip AMRfinderPlus"),
         (f"{Color.BRIGHT_GREEN}--skip-summary{Color.RESET}", "Skip ultimate summary report"),
         (f"{Color.BRIGHT_GREEN}--skip-viz{Color.RESET}", "Skip visualisation dashboard"),
+        (f"{Color.BRIGHT_GREEN}--abricate-minid INT{Color.RESET}", "ABRicate minimum %identity (default: 80)"),
+        (f"{Color.BRIGHT_GREEN}--abricate-mincov INT{Color.RESET}", "ABRicate minimum %coverage (default: 80)"),
+        (f"{Color.BRIGHT_GREEN}--past-min-pident INT{Color.RESET}", "PAST minimum percent identity (default: 95)"),
+        (f"{Color.BRIGHT_GREEN}--past-min-coverage INT{Color.RESET}", "PAST minimum percent coverage (default: 95)"),
+        (f"{Color.BRIGHT_GREEN}--amr-min-identity FLOAT{Color.RESET}", "AMR minimum identity (0-1, default: module default)"),
+        (f"{Color.BRIGHT_GREEN}--amr-min-coverage FLOAT{Color.RESET}", "AMR minimum coverage (0-1, default: module default)"),
+        (f"{Color.BRIGHT_GREEN}--amr-skip-mutations{Color.RESET}", "Disable point mutation reporting in AMR (enabled by default)"),
         (f"{Color.BRIGHT_GREEN}-h, --help{Color.RESET}", "Show this help message and exit"),
     ]
 
@@ -726,23 +760,33 @@ def print_colored_help():
   # Skip QC and visualisation, only run MLST and PAST
   pseudoscope -i "{Color.BRIGHT_CYAN}*.fasta{Color.RESET}" -o results --skip-qc --skip-summary --skip-viz
 
+  # Custom thresholds for PAST and ABRicate (note: ABRicate uses integers)
+  pseudoscope -i "{Color.BRIGHT_CYAN}*.fna{Color.RESET}" -o results --past-min-pident 90 --past-min-coverage 85 --abricate-minid 85 --abricate-mincov 80
+
+  # AMR with custom identity/coverage and disable mutation reporting
+  pseudoscope -i "{Color.BRIGHT_CYAN}*.fna{Color.RESET}" -o results --amr-min-identity 0.95 --amr-min-coverage 0.9 --amr-skip-mutations
+
   # Update AMR database (mandatory before first run)
   pseudoscope --update-amr-db
 
   # Show version
   pseudoscope --version
 
-  # Quiet mode (minimal output)
+  # Quiet mode (minimal console output)
   pseudoscope -i "{Color.BRIGHT_CYAN}*.fna{Color.RESET}" -o results --quiet
 
-  # Verbose mode (show all module commands)
-  pseudoscope -i "{Color.BRIGHT_CYAN}*.fna{Color.RESET}" -o results --verbose
+  # Keep temporary directories for debugging
+  pseudoscope -i "{Color.BRIGHT_CYAN}*.fna{Color.RESET}" -o results --keep-temp
 
 {Color.BRIGHT_YELLOW}REQUIRED BEFORE FIRST ANALYSIS:{Color.RESET}
   1. {Color.BRIGHT_GREEN}abricate --setupdb{Color.RESET}   (setup ABRicate databases)
   2. {Color.BRIGHT_GREEN}pseudoscope --update-amr-db{Color.RESET}   (download AMRfinderPlus database)
 
 {Color.BRIGHT_YELLOW}SUPPORTED FASTA FORMATS:{Color.RESET} {Color.BRIGHT_CYAN}.fna, .fasta, .fa, .fn{Color.RESET}
+
+{Color.BRIGHT_YELLOW}CITATION:{Color.RESET}
+  Beckley B, Amarh V. PseudoScope: a species‑specific bioinformatics suite for rapid and accessible
+  Pseudomonas aeruginosa genomic analysis. Github 2026 https://github.com/brown-beckley/pseudoscope
     """
 
     print()
@@ -756,14 +800,13 @@ def print_colored_help():
     print(epilog)
 
 
-def main():
-    # Create parser with add_help=False to handle help manually
+def main() -> None:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('-i', '--input', help=argparse.SUPPRESS)
     parser.add_argument('-o', '--output', help=argparse.SUPPRESS)
     parser.add_argument('-t', '--threads', type=int, default=2, help=argparse.SUPPRESS)
     parser.add_argument('--quiet', action='store_true', help=argparse.SUPPRESS)
-    parser.add_argument('--verbose', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--keep-temp', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--version', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--update-amr-db', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--skip-qc', action='store_true', help=argparse.SUPPRESS)
@@ -773,11 +816,18 @@ def main():
     parser.add_argument('--skip-amr', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--skip-summary', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--skip-viz', action='store_true', help=argparse.SUPPRESS)
+    # Thresholds
+    parser.add_argument('--abricate-minid', type=int, help=argparse.SUPPRESS)
+    parser.add_argument('--abricate-mincov', type=int, help=argparse.SUPPRESS)
+    parser.add_argument('--past-min-pident', type=int, help=argparse.SUPPRESS)
+    parser.add_argument('--past-min-coverage', type=int, help=argparse.SUPPRESS)
+    parser.add_argument('--amr-min-identity', type=float, help=argparse.SUPPRESS)
+    parser.add_argument('--amr-min-coverage', type=float, help=argparse.SUPPRESS)
+    parser.add_argument('--amr-skip-mutations', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('-h', '--help', action='store_true', help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
-    # Show coloured help and exit
     if args.help:
         print_colored_help()
         sys.exit(0)
@@ -787,7 +837,7 @@ def main():
         sys.exit(0)
 
     if args.update_amr_db:
-        orch = PseudoScopeOrchestrator(quiet=args.quiet, verbose=args.verbose)
+        orch = PseudoScopeOrchestrator(quiet=args.quiet, keep_temp=args.keep_temp)
         orch.run_complete_analysis("", "", update_amr_only=True)
         sys.exit(0)
 
@@ -802,7 +852,7 @@ def main():
         'amr': args.skip_amr,
     }
 
-    orch = PseudoScopeOrchestrator(quiet=args.quiet, verbose=args.verbose)
+    orch = PseudoScopeOrchestrator(quiet=args.quiet, keep_temp=args.keep_temp)
     try:
         orch.run_complete_analysis(
             input_path=args.input,
@@ -810,15 +860,21 @@ def main():
             threads=args.threads,
             skip=skip,
             skip_summary=args.skip_summary,
-            skip_viz=args.skip_viz
+            skip_viz=args.skip_viz,
+            abricate_minid=args.abricate_minid,
+            abricate_mincov=args.abricate_mincov,
+            past_min_pident=args.past_min_pident,
+            past_min_coverage=args.past_min_coverage,
+            amr_min_identity=args.amr_min_identity,
+            amr_min_coverage=args.amr_min_coverage,
+            amr_skip_mutations=args.amr_skip_mutations,
         )
     except KeyboardInterrupt:
         orch.print_error("Analysis interrupted by user")
         sys.exit(1)
     except Exception as e:
         orch.print_error(f"Critical error: {e}")
-        if args.verbose:
-            import traceback
+        if not args.quiet:
             traceback.print_exc()
         sys.exit(1)
 

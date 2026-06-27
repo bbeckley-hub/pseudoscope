@@ -46,7 +46,7 @@ class PseudoFASTAQC:
         # Metadata
         self.metadata = {
             "tool_name": "PseudoScope FASTA QC for Pseudomonas aeruginosa",
-            "version": "1.0.0", 
+            "version": "1.1.0", 
             "authors": ["Brown Beckley"],
             "email": "brownbeckley94@gmail.com",
             "github": "https://github.com/bbeckley-hub",
@@ -60,7 +60,7 @@ class PseudoFASTAQC:
             'primary': "#3811D5",      # Red
             'success': '#28a745',      # Green 
             'warning': '#ffc107',      # Yellow
-            'danger': '#dc3545',       # Red (same as primary)
+            'danger': '#dc3545',       # Red 
             'info': '#17a2b8',         # Cyan
             'dark': '#1f2937',         # Dark gray
             'light': '#f8f9fa'         # Light gray

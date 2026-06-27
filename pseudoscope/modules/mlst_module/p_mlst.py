@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PseudoScope - MLST Module for Pseudomonas aeruginosa (single scheme)
+PseudoScope - MLST Module for Pseudomonas aeruginosa
 Author: Brown Beckley <brownbeckley94@gmail.com>
 GitHub: bbeckley-hub
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry

@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
 """
-GENIUS PSEUDOMONAS AERUGINOSA ULTIMATE REPORTER (v2.0)
+GENIUS PSEUDOMONAS AERUGINOSA ULTIMATE REPORTER (v2.0.0)
 ================================================================================
 Advanced HTML parser and gene‑centric report generator for P. aeruginosa genomic data.
 Processes outputs from PseudoScope pipeline (MLST, PAST serotyping, AMRfinder,
-ABRicate databases, FASTA QC) and creates an interactive HTML report with:
+ABRicate databases, FASTA QC, and mutation_summary.html) and creates an interactive
+HTML report with:
 - Gene‑centric tables (genes shown with all genomes that carry them)
-- Separate AMR, Virulence, Plasmid, and Bacmet2 tabs
+- Separate AMR, Virulence, Plasmid, Bacmet2, and Mutation tabs
+- Dynamic grouping by MLST, O‑type, or ST‑O (exactly as in )
 - Educational content tailored to P. aeruginosa
 - Sortable, searchable tables with genome highlighting (tags)
-- ST and O‑type distributions + ST‑O combination table (with )
+- ST and O‑type distributions + ST‑O combination table
 - FASTA QC metrics integration
-- Filter buttons for key AMR, virulence, plasmid replicons, and Bacmet categories
+- Filter buttons for key AMR, virulence, plasmid replicons, Bacmet, and mutation categories
+- Citation tab with distinct, colourful citation cards
+- Guide tab with explanations, humour, and ethical AI use guidelines
 - Call to Action for community engagement
-- AI assistant guide for responsible use
 
 Author: Brown Beckley <brownbeckley94@gmail.com>
 Affiliation: University of Ghana Medical School, Department of Medical Biochemistry
-Version: 2.0
-Date: 2026-05-23
+Version: 2.0.0
+Date: 2026-06-23
 License: MIT
 ================================================================================
 """
@@ -40,7 +43,7 @@ warnings.filterwarnings('ignore')
 from bs4 import BeautifulSoup
 
 # =============================================================================
-# HTML PARSER CLASS 
+# HTML PARSER CLASS
 # =============================================================================
 class PseudomonasHTMLParser:
     """
@@ -48,13 +51,13 @@ class PseudomonasHTMLParser:
     Supports ABRicate databases: ncbi, card, resfinder, vfdb, plasmidfinder,
     megares, ecoli_vf, bacmet2, etc.
     """
-    
+
     def __init__(self):
         self.abricate_databases = [
             'ncbi', 'card', 'resfinder', 'vfdb', 'argannot',
             'plasmidfinder', 'megares', 'ecoli_vf', 'bacmet2'
         ]
-    
+
     def normalize_sample_id(self, sample_id: str) -> str:
         sample = str(sample_id)
         for ext in ['.fna', '.fasta', '.fa', '.gb', '.gbk', '.gbff', '.txt', '.tsv', '.csv']:
@@ -63,7 +66,7 @@ class PseudomonasHTMLParser:
         if '/' in sample or '\\' in sample:
             sample = Path(sample).name
         return sample.strip()
-    
+
     def clean_st(self, st_str: str) -> str:
         if not st_str or st_str == 'ND':
             return 'ND'
@@ -71,7 +74,7 @@ class PseudomonasHTMLParser:
         if not st_str.upper().startswith('ST'):
             st_str = 'ST' + st_str
         return st_str
-    
+
     def parse_html_table(self, html_content: str, table_index: int = 0) -> pd.DataFrame:
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
@@ -96,7 +99,7 @@ class PseudomonasHTMLParser:
         except Exception as e:
             print(f"  ⚠️ Table parsing error: {e}")
             return pd.DataFrame()
-    
+
     def parse_qc_report(self, file_path: Path) -> Dict[str, Dict]:
         print(f"  🧬 Parsing FASTA QC: {file_path.name}")
         try:
@@ -137,7 +140,7 @@ class PseudomonasHTMLParser:
         except Exception as e:
             print(f"    ❌ Error parsing QC: {e}")
             return {}
-    
+
     def parse_mlst_report(self, file_path: Path) -> Dict[str, Dict]:
         print(f"  🧬 Parsing MLST: {file_path.name}")
         try:
@@ -199,7 +202,7 @@ class PseudomonasHTMLParser:
         except Exception as e:
             print(f"    ❌ Error parsing MLST: {e}")
             return {}
-    
+
     def parse_past_report(self, file_path: Path) -> Dict[str, Dict]:
         print(f"  🧬 Parsing PAST serotype: {file_path.name}")
         try:
@@ -231,7 +234,7 @@ class PseudomonasHTMLParser:
         except Exception as e:
             print(f"    ❌ Error parsing PAST: {e}")
             return {}
-    
+
     def parse_amrfinder_report(self, file_path: Path) -> Tuple[Dict[str, List], Dict[str, Dict]]:
         print(f"  🧬 Parsing AMRfinder: {file_path.name}")
         try:
@@ -286,7 +289,7 @@ class PseudomonasHTMLParser:
         except Exception as e:
             print(f"    ❌ Error parsing AMRfinder: {e}")
             return {}, {}
-    
+
     def parse_abricate_report(self, file_path: Path) -> Tuple[Dict[str, List], Dict[str, Dict]]:
         print(f"  🧬 Parsing ABRicate: {file_path.name}")
         try:
@@ -348,9 +351,129 @@ class PseudomonasHTMLParser:
             print(f"    ❌ Error parsing ABRicate report: {e}")
             return {}, {}
 
+    def parse_mutation_summary_html(self, file_path: Path) -> Dict[str, Any]:
+        """Parse mutation_summary.html into gene-centric mutation data."""
+        print(f"  🧬 Parsing mutation summary HTML: {file_path.name}")
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            soup = BeautifulSoup(html_content, 'html.parser')
+
+            # Find the mutation table – look for a table containing the text "Gene"
+            mutation_table = None
+            for table in soup.find_all('table'):
+                if table.find(string=re.compile(r'Gene', re.I)) and table.find(string=re.compile(r'Mutation', re.I)):
+                    mutation_table = table
+                    break
+
+            if not mutation_table:
+                print("    ⚠️ Could not find mutation table in HTML")
+                return {}
+
+            # Parse headers
+            header_row = None
+            thead = mutation_table.find('thead')
+            if thead:
+                header_row = thead.find('tr')
+            if not header_row:
+                first_row = mutation_table.find('tr')
+                if first_row:
+                    header_row = first_row
+
+            if not header_row:
+                print("    ⚠️ Could not find header row in mutation table")
+                return {}
+
+            headers = []
+            for cell in header_row.find_all(['th', 'td']):
+                text = cell.get_text().strip()
+                if text:
+                    headers.append(text)
+
+            # Find column indices
+            col_idx = {}
+            for idx, h in enumerate(headers):
+                h_lower = h.lower()
+                if 'gene' in h_lower:
+                    col_idx['gene'] = idx
+                elif 'mutation' in h_lower:
+                    col_idx['mutation'] = idx
+                elif 'count' in h_lower:
+                    col_idx['count'] = idx
+                elif 'genome' in h_lower:
+                    col_idx['genomes'] = idx
+                elif 'class' in h_lower:
+                    col_idx['class'] = idx
+                elif 'subclass' in h_lower:
+                    col_idx['subclass'] = idx
+
+            required = ['gene', 'mutation', 'count', 'genomes']
+            for req in required:
+                if req not in col_idx:
+                    print(f"    ⚠️ Missing required column: {req}. Found headers: {headers}")
+                    return {}
+
+            # Parse data rows
+            tbody = mutation_table.find('tbody')
+            if tbody:
+                rows = tbody.find_all('tr')
+            else:
+                rows = mutation_table.find_all('tr')[1:]
+
+            mutations_list = []
+            genome_counts = defaultdict(int)
+
+            for row in rows:
+                cells = row.find_all('td')
+                if len(cells) <= max(col_idx.values()):
+                    continue
+
+                gene = cells[col_idx['gene']].get_text().strip()
+                mutation = cells[col_idx['mutation']].get_text().strip()
+                count_str = cells[col_idx['count']].get_text().strip()
+                count_match = re.search(r'(\d+)', count_str)
+                count = int(count_match.group(1)) if count_match else 0
+
+                genomes_str = cells[col_idx['genomes']].get_text().strip()
+                genomes = [g.strip() for g in genomes_str.split(',') if g.strip()]
+                if not genomes:
+                    continue
+
+                for g in genomes:
+                    genome_counts[g] += 1
+
+                class_name = ''
+                if 'class' in col_idx:
+                    class_name = cells[col_idx['class']].get_text().strip()
+                subclass = ''
+                if 'subclass' in col_idx:
+                    subclass = cells[col_idx['subclass']].get_text().strip()
+
+                mutations_list.append({
+                    'gene': gene,
+                    'mutation': mutation,
+                    'class': class_name,
+                    'subclass': subclass,
+                    'count': count,
+                    'genomes': genomes
+                })
+
+            mutations_list.sort(key=lambda x: x['count'], reverse=True)
+            print(f"    ✓ Parsed {len(mutations_list)} unique mutations across {len(genome_counts)} genomes")
+            return {
+                'mutations': mutations_list,
+                'genome_mutation_counts': dict(genome_counts)
+            }
+
+        except Exception as e:
+            print(f"    ❌ Error parsing mutation summary HTML: {e}")
+            import traceback
+            traceback.print_exc()
+            return {}
+
 
 # =============================================================================
-# DATA ANALYZER CLASS (with Plasmid and Bacmet separation)
+# DATA ANALYZER CLASS
 # =============================================================================
 class PseudomonasDataAnalyzer:
     def __init__(self):
@@ -365,7 +488,7 @@ class PseudomonasDataAnalyzer:
             'exoU', 'exoS', 'exoT', 'exoY', 'exoA', 'toxA',
             'pld', 'plcH', 'plcN', 'lasB', 'lasA', 'aprA'
         }
-    
+
     def create_gene_centric_tables(self, integrated_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Convert sample-centric gene lists into gene-centric tables,
@@ -378,7 +501,7 @@ class PseudomonasDataAnalyzer:
             'bacmet_databases': {},
             'combined_gene_frequencies': []
         }
-        
+
         # Process AMRfinder data
         if 'amrfinder' in integrated_data.get('gene_frequencies', {}):
             amr_data = integrated_data['gene_frequencies']['amrfinder']
@@ -393,7 +516,7 @@ class PseudomonasDataAnalyzer:
                 })
             if gene_list:
                 gene_centric['amr_databases']['amrfinder'] = sorted(gene_list, key=lambda x: x['count'], reverse=True)
-        
+
         # Process ABRicate databases (classify by type)
         if 'abricate' in integrated_data.get('gene_frequencies', {}):
             for db_name, db_genes in integrated_data['gene_frequencies']['abricate'].items():
@@ -418,7 +541,7 @@ class PseudomonasDataAnalyzer:
                     else:
                         # Default to AMR (e.g., ncbi, card, resfinder, megares)
                         gene_centric['amr_databases'][db_name] = gene_list
-        
+
         # Combined list for pattern discovery (optional)
         all_genes = []
         for db_type in ['amr_databases', 'virulence_databases', 'plasmid_databases', 'bacmet_databases']:
@@ -426,24 +549,24 @@ class PseudomonasDataAnalyzer:
                 all_genes.extend(genes)
         all_genes.sort(key=lambda x: x['count'], reverse=True)
         gene_centric['combined_gene_frequencies'] = all_genes
-        
+
         return gene_centric
-    
+
     def create_cross_genome_patterns(self, integrated_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate cross-genome patterns: ST distribution, O-type distribution,
         ST-O combinations, and gene co‑occurrence.
-        Also builds a mapping from ST to list of samples for the MLST  table.
+        Also builds a mapping from ST to list of samples for the MLST table.
         """
         patterns = {
             'st_distribution': Counter(),
             'o_type_distribution': Counter(),
             'st_o_combinations': defaultdict(list),
-            'st_to_samples': defaultdict(list),   # For MLST  table
+            'st_to_samples': defaultdict(list),
             'gene_cooccurrence': defaultdict(Counter)
         }
         samples_data = integrated_data.get('samples', {})
-        
+
         # Build sample -> genes mapping for co-occurrence
         sample_genes = defaultdict(list)
         gene_centric = integrated_data.get('gene_centric', {})
@@ -453,7 +576,7 @@ class PseudomonasDataAnalyzer:
                     for genome in gene_data['genomes']:
                         if gene_data['gene'] not in sample_genes[genome]:
                             sample_genes[genome].append(gene_data['gene'])
-        
+
         for sample, data in samples_data.items():
             st = data.get('mlst', {}).get('ST', 'ND')
             o_type = data.get('serotype', {}).get('O_Type', 'ND')
@@ -464,23 +587,23 @@ class PseudomonasDataAnalyzer:
                 patterns['o_type_distribution'][o_type] += 1
             if st != 'ND' and o_type != 'ND':
                 patterns['st_o_combinations'][f"{st} - {o_type}"].append(sample)
-            
+
             # Gene co-occurrence
             genes = sample_genes.get(sample, [])
             for i, g1 in enumerate(genes):
                 for g2 in genes[i+1:]:
                     patterns['gene_cooccurrence'][g1][g2] += 1
-        
+
         return patterns
 
 
 # =============================================================================
-# HTML GENERATOR CLASS ( with  everywhere, fixed highlighting)
+# HTML GENERATOR CLASS
 # =============================================================================
 class PseudomonasHTMLGenerator:
     def __init__(self, data_analyzer: PseudomonasDataAnalyzer):
         self.data_analyzer = data_analyzer
-    
+
     def generate_main_report(self, integrated_data: Dict[str, Any], output_dir: Path) -> str:
         print("\n🎨 Generating P. aeruginosa ULTIMATE HTML report...")
         html = self._create_ultimate_html(
@@ -496,9 +619,9 @@ class PseudomonasHTMLGenerator:
             f.write(html)
         print(f"    ✅ HTML report saved: {output_file}")
         return str(output_file)
-    
+
     def _create_ultimate_html(self, **kwargs) -> str:
-        # CSS (brown-themed, extended with .highlight for )
+        # CSS 
         css = """
         <style>
         :root {
@@ -514,8 +637,10 @@ class PseudomonasHTMLGenerator:
             --virulence-color: #E65100;
             --plasmid-color: #3F51B5;
             --bacmet-color: #607D8B;
+            --mutation-color: #00BCD4;
             --patterns-color: #AD1457;
-            --aiguide-color: #4527A0;
+            --citation-color: #00838F;
+            --guide-color: #4527A0;
             --calltoaction-color: #2E7D32;
             --export-color: #37474F;
         }
@@ -529,7 +654,7 @@ class PseudomonasHTMLGenerator:
         .dashboard-card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); text-align: center; transition: all 0.3s ease; cursor: pointer; border-left: 5px solid; }
         .dashboard-card:hover { transform: translateY(-10px); }
         .card-number { font-size: 3em; font-weight: bold; margin: 15px 0; background: linear-gradient(90deg, var(--brown-dark), var(--brown)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .tab-navigation { display: flex; gap: 5px; margin-bottom: 20px; flex-wrap: wrap; background: white; padding: 15px; border-radius: 12px; position: sticky; top: 10px; z-index: 100; }
+        .tab-navigation { display: flex; gap: 5px; margin-bottom: 20px; flex-wrap: wrap; background: white; padding: 15px; border-radius: 12px; position: sticky; top: 10px; z-index: 100; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
         .tab-button { padding: 12px 25px; background: #f5f5f5; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; color: #666; transition: all 0.3s ease; display: flex; align-items: center; gap: 8px; }
         .tab-button.active { color: white; }
         .tab-button.summary.active { background: var(--summary-color); }
@@ -541,24 +666,27 @@ class PseudomonasHTMLGenerator:
         .tab-button.virulence.active { background: var(--virulence-color); }
         .tab-button.plasmid.active { background: var(--plasmid-color); }
         .tab-button.bacmet.active { background: var(--bacmet-color); }
+        .tab-button.mutation.active { background: var(--mutation-color); }
         .tab-button.patterns.active { background: var(--patterns-color); }
-        .tab-button.aiguide.active { background: var(--aiguide-color); }
+        .tab-button.citation.active { background: var(--citation-color); }
+        .tab-button.guide.active { background: var(--guide-color); }
         .tab-button.calltoaction.active { background: var(--calltoaction-color); }
         .tab-button.export.active { background: var(--export-color); }
-        .tab-content { display: none; background: white; padding: 30px; border-radius: 15px; margin-bottom: 30px; width: 100%; overflow-x: auto; animation: fadeIn 0.5s ease; }
+        .tab-content { display: none; background: white; padding: 30px; border-radius: 15px; margin-bottom: 30px; width: 100%; overflow-x: auto; animation: fadeIn 0.5s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         .tab-content.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .section-header { color: #2c3e50; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 3px solid var(--brown); font-size: 1.8em; display: flex; justify-content: space-between; }
-        .data-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 0.95em; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .data-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 0.95em; box-shadow: 0 2px 10px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
         .data-table th { background: var(--brown-dark); color: white; padding: 15px; text-align: left; cursor: pointer; white-space: nowrap; }
         .data-table th:hover { background: var(--brown); }
         .data-table td { padding: 12px; border-bottom: 1px solid #e0e0e0; vertical-align: top; word-wrap: break-word; }
         .data-table tr:hover { background: #f8f9fa; }
         .sort-icon { margin-left: 5px; font-size: 0.8em; opacity: 0.6; }
-        .search-box { width: 100%; padding: 12px; margin-bottom: 20px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em; }
+        .search-box { width: 100%; padding: 12px; margin-bottom: 20px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em; transition: 0.3s; }
+        .search-box:focus { outline: none; border-color: var(--brown); box-shadow: 0 0 0 3px rgba(139,69,19,0.1); }
         .action-buttons { display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap; clear: both; }
         .action-btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; transition: 0.3s; }
-        .action-btn:hover { transform: translateY(-2px); }
+        .action-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
         .btn-primary { background: var(--brown); color: white; }
         .btn-danger { background: #dc3545; color: white; }
         .btn-warning { background: #ffc107; color: black; }
@@ -570,20 +698,48 @@ class PseudomonasHTMLGenerator:
         .alert-box { padding: 20px; border-radius: 10px; margin: 20px 0; display: flex; align-items: center; gap: 20px; border-left: 5px solid; }
         .alert-info { background: #d1ecf1; color: #0c5460; border-left-color: #17a2b8; }
         .alert-danger { background: #f8d7da; color: #721c24; border-left-color: #dc3545; }
-        .genome-list { display: flex; flex-wrap: wrap; gap: 5px; max-height: none; overflow: visible; }
-        .genome-tag { background: #e3f2fd; color: #1976d2; padding: 3px 10px; border-radius: 12px; font-size: 0.85em; border: 1px solid #bbdefb; white-space: nowrap; }
+        .alert-success { background: #d4edda; color: #155724; border-left-color: #28a745; }
+        .alert-warning { background: #fff3cd; color: #856404; border-left-color: #ffc107; }
+        .genome-list { display: flex; flex-wrap: wrap; gap: 5px; max-height: 200px; overflow-y: auto; padding: 5px; background: #f8f9fa; border-radius: 5px; }
+        .genome-tag { background: #e3f2fd; color: #1976d2; padding: 3px 10px; border-radius: 12px; font-size: 0.85em; border: 1px solid #bbdefb; white-space: nowrap; margin: 2px; }
         .genome-tag.highlight { background-color: #ffff99 !important; color: #000 !important; border: 1px solid #ffc107; }
+        .genome-group { margin-bottom: 10px; width: 100%; }
+        .genome-group-header { font-weight: bold; background: #e0e0e0; padding: 4px 8px; border-radius: 4px; margin: 5px 0; font-size: 0.85em; display: inline-block; }
+        .genome-group-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-left: 10px; }
+        .grouping-controls { background: #f0f7f0; padding: 12px; border-radius: 8px; margin: 15px 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-left: 4px solid var(--brown); }
+        .grouping-controls label { font-weight: bold; margin-right: 5px; }
+        .group-btn { background: white; border: 1px solid var(--brown); color: var(--brown); padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 0.85em; transition: all 0.2s; }
+        .group-btn:hover { background: var(--brown); color: white; }
+        .group-btn.active { background: var(--brown); color: white; }
+        .scrollable-table { overflow-x: auto; width: 100%; border: 1px solid #e0e0e0; border-radius: 8px; }
+        .scrollable-table table { margin: 0; }
+        .citation-card { padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 5px solid; transition: transform 0.2s; }
+        .citation-card:hover { transform: translateX(5px); }
+        .citation-card .copy-btn { color: white; border: none; padding: 5px 15px; border-radius: 20px; cursor: pointer; font-size: 0.8em; margin-left: 10px; }
+        .citation-card a { text-decoration: none; font-weight: 600; }
+        .citation-card a.doi { color: #0D6EFD; }
+        .citation-card a.url { color: #2E7D32; }
+        .citation-card a:hover { text-decoration: underline; }
         .footer { text-align: center; padding: 30px; background: linear-gradient(135deg, var(--brown-dark), var(--brown)); color: white; border-radius: 15px; margin-top: 40px; }
         .footer a { color: #ffd700; text-decoration: none; }
         .footer a:hover { text-decoration: underline; }
         .scientific-note { background: #f9f9e0; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-left: 5px solid var(--brown); font-size: 0.95em; }
+        .humour { background: #fff0f0; padding: 10px; border-radius: 8px; border: 1px dashed #ff6b6b; margin: 10px 0; }
+        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin: 20px 0; }
+        .feature-item { background: #f8f9fa; padding: 20px; border-radius: 12px; border-left: 5px solid var(--brown); transition: all 0.3s; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .feature-item:hover { transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
+        .feature-item h4 { color: var(--brown-dark); margin-bottom: 8px; }
+        .feature-item i { color: var(--brown); margin-right: 8px; }
         @media print { .tab-navigation, .dashboard-grid, .search-box, .action-buttons, .print-section-btn { display: none; } .tab-content.active { display: block; } }
         </style>
         """
-        
-        # JavaScript ( with highlightGenome function)
+
+        # JavaScript 
         js = """
         <script>
+        var sampleTyping = {};
+        var originalGenomeLists = {};
+
         function switchTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
@@ -591,6 +747,7 @@ class PseudomonasHTMLGenerator:
             event.currentTarget.classList.add('active');
             window.location.hash = tabName;
         }
+
         function searchTable(tableId, searchId) {
             const filter = document.getElementById(searchId).value.toUpperCase();
             const rows = document.getElementById(tableId).getElementsByTagName('tr');
@@ -602,6 +759,7 @@ class PseudomonasHTMLGenerator:
                 rows[i].style.display = found ? '' : 'none';
             }
         }
+
         function highlightGenome(tableId, searchId) {
             const filter = document.getElementById(searchId).value.toUpperCase().trim();
             const table = document.getElementById(tableId);
@@ -614,6 +772,130 @@ class PseudomonasHTMLGenerator:
                 }
             });
         }
+
+        function getTypingValue(genome, groupBy) {
+            var info = sampleTyping[genome];
+            if (!info) return "Unknown";
+            if (groupBy === "ST") return info.ST;
+            if (groupBy === "Otype") return info.Otype;
+            if (groupBy === "ST-O") return info.ST + " - " + info.Otype;
+            return "Unknown";
+        }
+
+        function groupRowGenomes(row, groupBy, originalList) {
+            let genomesCell = null;
+            for (let i = 0; i < row.cells.length; i++) {
+                if (row.cells[i].querySelector('.genome-list')) {
+                    genomesCell = row.cells[i];
+                    break;
+                }
+            }
+            if (!genomesCell) {
+                console.warn("Could not find genomes cell in row");
+                return;
+            }
+            var genomes = originalList.slice();
+            if (genomes.length === 0) {
+                genomesCell.innerHTML = '<div class="genome-list">None</div>';
+                return;
+            }
+            var groups = {};
+            genomes.forEach(function(genome) {
+                var key = getTypingValue(genome, groupBy);
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(genome);
+            });
+            var html = '<div class="genome-list">';
+            for (var key in groups) {
+                var tags = groups[key].map(g => `<span class="genome-tag">${g}</span>`).join('');
+                html += `<div class="genome-group"><div class="genome-group-header">${key}</div><div class="genome-group-tags">${tags}</div></div>`;
+            }
+            html += '</div>';
+            genomesCell.innerHTML = html;
+        }
+
+        function groupGenomesByTyping(tableId, groupBy) {
+            var table = document.getElementById(tableId);
+            if (!table) {
+                console.error("Table not found:", tableId);
+                return;
+            }
+            var tbody = table.tBodies[0];
+            if (!tbody) {
+                console.error("No tbody found in table", tableId);
+                return;
+            }
+            var rows = tbody.rows;
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var geneNameCell = row.cells[0];
+                if (!geneNameCell) continue;
+                var geneName = geneNameCell.textContent.trim().replace(/⚠️/g, '').trim();
+                if (!originalGenomeLists[geneName]) {
+                    var genomesCell = null;
+                    for (var j = 0; j < row.cells.length; j++) {
+                        if (row.cells[j].querySelector('.genome-list')) {
+                            genomesCell = row.cells[j];
+                            break;
+                        }
+                    }
+                    if (genomesCell) {
+                        var tags = genomesCell.querySelectorAll('.genome-tag');
+                        var genomes = Array.from(tags).map(tag => tag.textContent.trim());
+                        originalGenomeLists[geneName] = genomes;
+                    } else {
+                        originalGenomeLists[geneName] = [];
+                    }
+                }
+            }
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var geneNameCell = row.cells[0];
+                if (!geneNameCell) continue;
+                var geneName = geneNameCell.textContent.trim().replace(/⚠️/g, '').trim();
+                var original = originalGenomeLists[geneName] || [];
+                groupRowGenomes(row, groupBy, original);
+            }
+            var container = table.closest('.tab-content');
+            if (container) {
+                var btns = container.querySelectorAll('.group-btn');
+                btns.forEach(btn => btn.classList.remove('active'));
+                var activeBtn = container.querySelector(`.group-btn[data-group="${groupBy}"]`);
+                if (activeBtn) activeBtn.classList.add('active');
+            }
+        }
+
+        function resetGenomeList(tableId) {
+            var table = document.getElementById(tableId);
+            if (!table) return;
+            var tbody = table.tBodies[0];
+            if (!tbody) return;
+            var rows = tbody.rows;
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var geneNameCell = row.cells[0];
+                if (!geneNameCell) continue;
+                var geneName = geneNameCell.textContent.trim().replace(/⚠️/g, '').trim();
+                var original = originalGenomeLists[geneName] || [];
+                var genomesCell = null;
+                for (var j = 0; j < row.cells.length; j++) {
+                    if (row.cells[j].querySelector('.genome-list')) {
+                        genomesCell = row.cells[j];
+                        break;
+                    }
+                }
+                if (genomesCell) {
+                    var tags = original.map(g => `<span class="genome-tag">${g}</span>`).join('');
+                    genomesCell.innerHTML = `<div class="genome-list">${tags}</div>`;
+                }
+            }
+            var container = table.closest('.tab-content');
+            if (container) {
+                var btns = container.querySelectorAll('.group-btn');
+                btns.forEach(btn => btn.classList.remove('active'));
+            }
+        }
+
         function sortTable(tableId, colIndex, type) {
             const table = document.getElementById(tableId);
             const tbody = table.tBodies[0];
@@ -638,6 +920,7 @@ class PseudomonasHTMLGenerator:
             const icon = currentHeader.querySelector('.sort-icon');
             if(icon) icon.innerHTML = isAscending ? '↑' : '↓';
         }
+
         function exportTableToCSV(tableId, filename) {
             const rows = document.getElementById(tableId).querySelectorAll('tr');
             const csv = [];
@@ -653,6 +936,7 @@ class PseudomonasHTMLGenerator:
             a.click();
             URL.revokeObjectURL(a.href);
         }
+
         function printSection(sectionId) {
             const content = document.getElementById(sectionId);
             const win = window.open('', '_blank');
@@ -662,12 +946,14 @@ class PseudomonasHTMLGenerator:
             win.document.close();
             win.print();
         }
+
         document.addEventListener('DOMContentLoaded', function() {
             const hash = window.location.hash.substring(1);
             if(hash) {
                 let btn = document.querySelector(`.tab-button.${hash}`);
                 if(btn) btn.click();
             } else document.querySelector('.tab-button').click();
+
             document.querySelectorAll('.data-table').forEach(table => {
                 const headers = table.querySelectorAll('th');
                 headers.forEach((th, idx) => {
@@ -680,10 +966,32 @@ class PseudomonasHTMLGenerator:
                     th.appendChild(icon);
                 });
             });
+
+            // Copy citation buttons
+            document.querySelectorAll('.copy-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const citation = this.getAttribute('data-citation');
+                    navigator.clipboard.writeText(citation).then(() => {
+                        const originalText = this.innerHTML;
+                        this.innerHTML = '✓ Copied!';
+                        setTimeout(() => { this.innerHTML = originalText; }, 2000);
+                    });
+                });
+            });
         });
         </script>
         """
-        
+
+        # Build sampleTyping object for JavaScript
+        samples_data = kwargs['samples_data']
+        sample_typing_js = {}
+        for sample, data in samples_data.items():
+            st = data.get('mlst', {}).get('ST', 'ND')
+            otype = data.get('serotype', {}).get('O_Type', 'ND')
+            sample_typing_js[sample] = {'ST': st, 'Otype': otype}
+        sample_typing_json = json.dumps(sample_typing_js)
+        js = js.replace('var sampleTyping = {};', f'var sampleTyping = {sample_typing_json};')
+
         metadata = kwargs['metadata']
         samples = kwargs['samples_data']
         patterns = kwargs['patterns']
@@ -693,14 +1001,16 @@ class PseudomonasHTMLGenerator:
         total_vir = sum(len(genes) for genes in gene_centric.get('virulence_databases', {}).values())
         total_plasmid = sum(len(genes) for genes in gene_centric.get('plasmid_databases', {}).values())
         total_bacmet = sum(len(genes) for genes in gene_centric.get('bacmet_databases', {}).values())
-        
+        mutation_data = kwargs.get('integrated_data', {}).get('mutation_data', {})
+        total_mutations = len(mutation_data.get('mutations', []))
+
         html = f"""<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>GENIUS P. aeruginosa Ultimate Report ()</title>
+<html><head><meta charset="UTF-8"><title>GENIUS P. aeruginosa Ultimate Report</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 {css}{js}</head>
 <body><div class="container">
 <div class="main-header"><h1><i class="fas fa-dna"></i> GENIUS P. aeruginosa Ultimate Analysis Report</h1>
-<p>Gene‑Centric Cross‑Genome Analysis with Plasmid & Bacmet2 Integration</p>
+<p>Gene‑Centric Cross‑Genome Analysis with Plasmid, Bacmet2 & Mutation Integration</p>
 <div class="metadata-bar"><div class="metadata-item"><i class="fas fa-calendar"></i> {metadata.get('analysis_date','Unknown')}</div>
 <div class="metadata-item"><i class="fas fa-database"></i> Samples: {len(samples)}</div>
 <div class="metadata-item"><i class="fas fa-user-md"></i> GENIUS P. aeruginosa v2.0.0</div>
@@ -713,6 +1023,7 @@ class PseudomonasHTMLGenerator:
     <div class="dashboard-card card-virulence" onclick="switchTab('virulence')"><div class="card-number">{total_vir}</div><div class="card-label">Virulence Genes</div><i class="fas fa-virus fa-2x"></i></div>
     <div class="dashboard-card card-plasmid" onclick="switchTab('plasmid')"><div class="card-number">{total_plasmid}</div><div class="card-label">Plasmid Replicons</div><i class="fas fa-dna fa-2x"></i></div>
     <div class="dashboard-card card-bacmet" onclick="switchTab('bacmet')"><div class="card-number">{total_bacmet}</div><div class="card-label">Bacmet2 Genes</div><i class="fas fa-flask fa-2x"></i></div>
+    <div class="dashboard-card card-mutation" onclick="switchTab('mutation')"><div class="card-number">{total_mutations}</div><div class="card-label">Mutations</div><i class="fas fa-dna fa-2x"></i></div>
 </div>
 <div class="tab-navigation">
     <button class="tab-button summary active" onclick="switchTab('summary')"><i class="fas fa-chart-pie"></i> Summary</button>
@@ -724,8 +1035,10 @@ class PseudomonasHTMLGenerator:
     <button class="tab-button virulence" onclick="switchTab('virulence')"><i class="fas fa-virus"></i> Virulence</button>
     <button class="tab-button plasmid" onclick="switchTab('plasmid')"><i class="fas fa-dna"></i> Plasmid Replicons</button>
     <button class="tab-button bacmet" onclick="switchTab('bacmet')"><i class="fas fa-flask"></i> Bacmet2</button>
+    <button class="tab-button mutation" onclick="switchTab('mutation')"><i class="fas fa-dna"></i> Mutations</button>
     <button class="tab-button patterns" onclick="switchTab('patterns')"><i class="fas fa-project-diagram"></i> Patterns</button>
-    <button class="tab-button aiguide" onclick="switchTab('aiguide')"><i class="fas fa-robot"></i> AI Guide</button>
+    <button class="tab-button citation" onclick="switchTab('citation')"><i class="fas fa-book"></i> Citation</button>
+    <button class="tab-button guide" onclick="switchTab('guide')"><i class="fas fa-question-circle"></i> Guide</button>
     <button class="tab-button calltoaction" onclick="switchTab('calltoaction')"><i class="fas fa-globe"></i> Call to Action</button>
     <button class="tab-button export" onclick="switchTab('export')"><i class="fas fa-download"></i> Export</button>
 </div>
@@ -738,10 +1051,12 @@ class PseudomonasHTMLGenerator:
 <div id="virulence-tab" class="tab-content">{self._virulence_section(kwargs)}</div>
 <div id="plasmid-tab" class="tab-content">{self._plasmid_section(kwargs)}</div>
 <div id="bacmet-tab" class="tab-content">{self._bacmet_section(kwargs)}</div>
+<div id="mutation-tab" class="tab-content">{self._mutation_section(kwargs)}</div>
 <div id="patterns-tab" class="tab-content">{self._patterns_section(kwargs)}</div>
-<div id="aiguide-tab" class="tab-content">{self._aiguide_section(kwargs)}</div>
+<div id="citation-tab" class="tab-content">{self._citation_section()}</div>
+<div id="guide-tab" class="tab-content">{self._guide_section()}</div>
 <div id="calltoaction-tab" class="tab-content">{self._calltoaction_section()}</div>
-<div id="export-tab" class="tab-content">{self._export_section(kwargs)}</div>
+<div id="export-tab" class="tab-content">{self._export_section()}</div>
 <div class="footer">
     <h3>GENIUS P. aeruginosa Ultimate Reporter v2.0.0</h3>
     <p>University of Ghana Medical School | Department of Medical Biochemistry</p>
@@ -752,35 +1067,65 @@ class PseudomonasHTMLGenerator:
 </div>
 </div></body></html>"""
         return html
-    
+
     # -------------------------------------------------------------------------
-    # Section generators (each with detailed educational notes)
+    # Section generators
     # -------------------------------------------------------------------------
-    
+
     def _summary_section(self, kwargs):
         samples = kwargs['samples_data']
         patterns = kwargs['patterns']
         total = len(samples)
         st_unique = len(patterns.get('st_distribution', {}))
         o_unique = len(patterns.get('o_type_distribution', {}))
-        amr_total = sum(len(genes) for genes in kwargs['gene_centric'].get('amr_databases', {}).values())
-        vir_total = sum(len(genes) for genes in kwargs['gene_centric'].get('virulence_databases', {}).values())
-        plasmid_total = sum(len(genes) for genes in kwargs['gene_centric'].get('plasmid_databases', {}).values())
-        bacmet_total = sum(len(genes) for genes in kwargs['gene_centric'].get('bacmet_databases', {}).values())
+        gene_centric = kwargs['gene_centric']
+        amr_total = sum(len(genes) for genes in gene_centric.get('amr_databases', {}).values())
+        vir_total = sum(len(genes) for genes in gene_centric.get('virulence_databases', {}).values())
+        plasmid_total = sum(len(genes) for genes in gene_centric.get('plasmid_databases', {}).values())
+        bacmet_total = sum(len(genes) for genes in gene_centric.get('bacmet_databases', {}).values())
+        mutation_data = kwargs.get('integrated_data', {}).get('mutation_data', {})
+        mutation_count = len(mutation_data.get('mutations', []))
+
+        features = [
+            ("🧬 Gene‑Centric Tables", "Each AMR, virulence, plasmid, bacmet, or mutation is displayed with the list of genomes that carry it – no more hunting through individual sample reports."),
+            ("🔗 Dynamic Grouping by Typing", "Group genomes by MLST, O‑type, or ST‑O combinations to instantly see which clones harbour specific genes or mutations."),
+            ("📚 Comprehensive Database Integration", "Combines AMRfinder, ABRicate (CARD, ResFinder, VFDB, PlasmidFinder, BacMet2, etc.) for maximum sensitivity and consensus."),
+            ("🔍 Interactive Filters & Highlighting", "Click buttons to focus on key gene families (carbapenemases, T3SS, biocide resistance, point mutations) and highlight specific isolates across tables."),
+            ("🧩 ST‑O Combination Analysis", "Identify epidemic clones (e.g., ST235‑O11) and their associated resistance/virulence profiles."),
+            ("📊 FASTA QC Metrics", "Assembly quality (N50, contig count) ensures reliable gene calls."),
+            ("🧬 Mutation Tracking", "Point mutations in gyrA, parC, rpoB, 23S rRNA, etc. – detect resistance even without acquired genes."),
+            ("📤 Export & AI‑Ready", "Export any table as CSV or download the complete JSON for upload to ChatGPT, Claude, or Gemini for further analysis."),
+        ]
+
+        feature_html = ""
+        colours = ['#e3f2fd', '#e8f5e9', '#fff3e0', '#fce4ec', '#f3e5f5', '#e0f7fa', '#fff8e1', '#fbe9e7']
+        for i, (title, desc) in enumerate(features):
+            colour = colours[i % len(colours)]
+            feature_html += f'''
+            <div class="feature-item" style="background: {colour}; border-left-color: var(--brown);">
+                <h4><i class="fas fa-{title.split()[0].lower()}"></i> {title}</h4>
+                <p>{desc}</p>
+            </div>
+            '''
+
         return f"""
         <div class="scientific-note"><i class="fas fa-flask"></i> <strong>Why this matters – Surveillance of <em>P. aeruginosa</em></strong><br>
         <em>Pseudomonas aeruginosa</em> is a leading cause of healthcare‑associated infections, especially in immunocompromised patients, cystic fibrosis, and burn wounds. 
         It exhibits both intrinsic and acquired resistance to many antibiotics, and its virulence arsenal (T3SS, exotoxin A, biofilms) makes infections difficult to treat.
         <br><br>
-        This report provides a gene‑centric view – each resistance, virulence, plasmid, or biocide‑metal resistance gene is shown with <strong>all genomes that carry it</strong>. 
+        This report provides a gene‑centric view – each resistance, virulence, plasmid, biocide‑metal, or mutation is shown with <strong>all genomes that carry it</strong>. 
         This allows rapid identification of outbreak clones, co‑occurrence patterns, and potential co‑selection risks.
         </div>
-        <div class="alert-box alert-info"><i class="fas fa-info-circle fa-2x"></i><div><h3>Analysis Overview</h3><p>Gene‑centric report for <strong>{total}</strong> P. aeruginosa genomes. Use tabs to explore AMR, virulence, plasmids, biocide/metal resistance, and population structure.</p></div></div>
-        <div class="action-buttons"><button class="action-btn btn-primary" onclick="switchTab('amr')"><i class="fas fa-biohazard"></i> View AMR Genes</button>
-        <button class="action-btn btn-success" onclick="switchTab('virulence')"><i class="fas fa-virus"></i> View Virulence</button>
-        <button class="action-btn btn-info" onclick="switchTab('plasmid')"><i class="fas fa-dna"></i> View Plasmid Replicons</button>
-        <button class="action-btn btn-secondary" onclick="switchTab('bacmet')"><i class="fas fa-flask"></i> View Bacmet2</button></div>
-        <h3>Key Statistics</h3><div class="scrollable-table"><table id="summary-stats" class="data-table"><thead><tr><th data-sort="string">Metric</th><th data-sort="string">Count</th><th>Details</th></tr></thead><tbody>
+        <div class="alert-box alert-info"><i class="fas fa-info-circle fa-2x"></i><div><h3>Analysis Overview</h3><p>Gene‑centric report for <strong>{total}</strong> P. aeruginosa genomes. Use tabs to explore AMR, virulence, plasmids, biocide/metal resistance, mutations, and population structure.</p></div></div>
+        <div class="action-buttons">
+            <button class="action-btn btn-primary" onclick="switchTab('amr')"><i class="fas fa-biohazard"></i> View AMR Genes</button>
+            <button class="action-btn btn-success" onclick="switchTab('virulence')"><i class="fas fa-virus"></i> View Virulence</button>
+            <button class="action-btn btn-info" onclick="switchTab('plasmid')"><i class="fas fa-dna"></i> View Plasmid Replicons</button>
+            <button class="action-btn btn-secondary" onclick="switchTab('bacmet')"><i class="fas fa-flask"></i> View Bacmet2</button>
+            <button class="action-btn btn-warning" onclick="switchTab('mutation')"><i class="fas fa-dna"></i> View Mutations</button>
+        </div>
+        <h3>Key Statistics</h3>
+        <div class="scrollable-table"><table id="summary-stats" class="data-table"><thead><tr><th data-sort="string">Metric</th><th data-sort="string">Count</th><th>Details</th></tr></thead><tbody>
         <tr><td>Total Samples</td><td><strong>{total}</strong></td><td>Complete genomic analysis</td></tr>
         <tr><td>Unique STs</td><td><strong>{st_unique}</strong></td><td>MLST (Pasteur scheme)</td></tr>
         <tr><td>Unique O‑types</td><td><strong>{o_unique}</strong></td><td>PAST serotyping</td></tr>
@@ -788,9 +1133,12 @@ class PseudomonasHTMLGenerator:
         <tr><td>Virulence Genes</td><td><strong>{vir_total}</strong></td><td>VFDB</td></tr>
         <tr><td>Plasmid Replicons</td><td><strong>{plasmid_total}</strong></td><td>PlasmidFinder database</td></tr>
         <tr><td>Bacmet2 Genes</td><td><strong>{bacmet_total}</strong></td><td>Biocide & heavy metal resistance</td></tr>
+        <tr><td>Unique Mutations</td><td><strong>{mutation_count}</strong></td><td>AMRfinderPlus point mutations</td></tr>
         </tbody></table></div>
+        <h3>✨ Key Features of This Report</h3>
+        <div class="features-grid">{feature_html}</div>
         """
-    
+
     def _samples_section(self, kwargs):
         samples = kwargs['samples_data']
         qc_data = kwargs.get('qc_data', {})
@@ -801,7 +1149,7 @@ class PseudomonasHTMLGenerator:
             <li><strong>MLST (Sequence Type)</strong>: Multilocus sequence typing (Pasteur scheme) defines STs. High‑risk clones (e.g., ST111, ST235, ST244, ST277) are often associated with carbapenem resistance and severe infections.</li>
             <li><strong>O‑Serotype</strong>: The lipopolysaccharide O‑antigen is a vaccine target. Prevalent types include O1, O2, O5, O6, O11. Serotype O11 is linked to epidemic clones.</li>
             <li><strong>N50</strong>: A key assembly quality metric (the shortest contig length such that half the genome is in contigs of that size or larger). Higher N50 = better assembly.</li>
-            <li><strong>Virulence Count</strong>: Number of detected virulence genes from VFDB/PA‑VF. Higher counts may indicate greater pathogenic potential.</li>
+            <li><strong>Virulence Count</strong>: Number of detected virulence genes from VFDB. Higher counts may indicate greater pathogenic potential.</li>
         </ul>
         </div>
         <input type="text" class="search-box" id="search-samples" onkeyup="searchTable('samples-table','search-samples')" placeholder="🔍 Search samples...">
@@ -818,16 +1166,31 @@ class PseudomonasHTMLGenerator:
             html += f'<tr><td><strong>{sample}</strong></td><td>{st}</td><td>{o_type}</td><td>{n50}</td><td>{vir_cnt}</td></tr>'
         html += '</tbody></table></div>'
         return html
-    
+
     def _qc_section(self, kwargs):
         qc_data = kwargs.get('qc_data', {})
         if not qc_data:
             return '<div class="alert-box alert-warning"><i class="fas fa-exclamation-circle"></i><div>No FASTA QC data found.</div></div>'
-        metrics = set()
-        for d in qc_data.values():
-            metrics.update(d.keys())
-        metrics = sorted(metrics)
+
+        
         html = """
+        <div class="scientific-note" style="background: linear-gradient(135deg, #f8f9fa 0%, #d1ecf1 100%); border-left: 6px solid #17a2b8; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <span style="font-size: 1.4em;">🐍</span>
+                <div>
+                    <strong style="font-size: 1.2em; color: #0c5460;">FASTA QC – Powered by Biopython</strong><br>
+                    <span style="font-size: 0.95em; color: #333;">
+                        <strong>Biopython</strong> by <a href="https://biopython.org/" target="_blank" style="color: #17a2b8; font-weight: bold;">The Biopython Consortium</a> 
+                        <i class="fas fa-arrow-right"></i> Used for parsing FASTA files and computing quality metrics (GC%, N50, contig counts, etc.).
+                        <br>
+                        <span style="color: #6c757d;">Biopython is an open‑source toolkit for computational biology, essential for robust and reproducible assembly QC.</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+        """
+
+        html += """
         <div class="scientific-note"><i class="fas fa-chart-line"></i> <strong>FASTA Quality Control – Why It Matters</strong><br>
         Assembly quality directly affects gene detection. Poor assemblies (low N50, high contig count) may miss genes or create false positives.
         <ul>
@@ -838,6 +1201,11 @@ class PseudomonasHTMLGenerator:
         </div>
         <input type="text" class="search-box" id="search-qc" onkeyup="searchTable('qc-table','search-qc')" placeholder="🔍 Search sample...">
         <div class="scrollable-table"><table id="qc-table" class="data-table"><thead><tr><th data-sort="string">Sample</th>"""
+        metrics = set()
+        for d in qc_data.values():
+            metrics.update(d.keys())
+        metrics = sorted(metrics)
+
         for m in metrics:
             html += f'<th data-sort="number">{m}</th>'
         html += '</tr></thead><tbody>'
@@ -851,13 +1219,38 @@ class PseudomonasHTMLGenerator:
             html += '</tr>'
         html += '</tbody></table></div>'
         return html
-    
+
     def _mlst_section(self, kwargs):
         patterns = kwargs['patterns']
         st_dist = patterns.get('st_distribution', Counter())
         st_to_samples = patterns.get('st_to_samples', defaultdict(list))
         total = sum(st_dist.values())
-        html = f"""
+
+        
+        html = """
+        <div class="scientific-note" style="background: linear-gradient(135deg, #f8f9fa 0%, #cce5ff 100%); border-left: 6px solid #007bff; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <span style="font-size: 1.4em;">🧬</span>
+                <div>
+                    <strong style="font-size: 1.2em; color: #004085;">MLST (Pasteur scheme) – Powered by PubMLST & Seemann's MLST Scripts</strong><br>
+                    <span style="font-size: 0.95em; color: #333;">
+                        <strong>PubMLST</strong> database by <a href="https://pubmlst.org/" target="_blank" style="color: #007bff; font-weight: bold;">Keith Jolley & the PubMLST team</a> 
+                        <i class="fas fa-arrow-right"></i> Typing schemes integrated via 
+                        <a href="https://github.com/tseemann/mlst" target="_blank" style="color: #dc3545; font-weight: bold;">Seemann's MLST scripts</a>.
+                        <br>
+                        <span style="color: #6c757d;">
+                            <i class="fas fa-exclamation-triangle" style="color: #ffc107;"></i> 
+                            <strong>Important:</strong> Due to licensing restrictions on the PubMLST database, we cannot include alleles added after <strong>December 31, 2024</strong>. 
+                            To use the latest alleles, you can update your local database by following the 
+                            <a href="https://github.com/tseemann/mlst#updating-the-databases" target="_blank" style="color: #007bff;">instructions from Seemann's MLST</a>. 
+                        </span>
+                    </span>
+                </div>
+            </div>
+        </div>
+        """
+
+        html += """
         <div class="scientific-note"><i class="fas fa-code-branch"></i> <strong>MLST (Pasteur scheme) – Tracking High‑Risk Clones</strong><br>
         Multi‑locus sequence typing uses seven housekeeping genes (<em>acsA, aroE, guaA, mutL, nuoD, ppsA, trpE</em>). 
         Globally disseminated high‑risk clones include:
@@ -881,12 +1274,11 @@ class PseudomonasHTMLGenerator:
             o_str = ', '.join(o_types) if o_types else 'ND'
             html += f'<tr><td><strong>{st}</strong></td><td>{cnt}</td><td>{pct:.1f}%</td><td>{o_str}</td></tr>'
         html += '</tbody></table></div>'
-        
-        # New table: ST with  and highlight search
+
         html += """
         <h3>ST-Sample List</h3>
-        <p>Each ST is shown with all samples that belong to it. Use the search box to highlight specific  across the table.</p>
-        <input type="text" class="search-box" id="search-mlst-tags" onkeyup="highlightGenome('mlst-tags-table','search-mlst-tags')" placeholder="🔍 Highlight ...">
+        <p>Each ST is shown with all samples that belong to it. Use the search box to highlight specific samples across the table.</p>
+        <input type="text" class="search-box" id="search-mlst-tags" onkeyup="highlightGenome('mlst-tags-table','search-mlst-tags')" placeholder="🔍 Highlight sample...">
         <div class="scrollable-table"><table id="mlst-tags-table" class="data-table"><thead>
         <tr><th data-sort="string">ST</th><th data-sort="number">Count</th><th data-sort="string">Samples</th>
         </thead><tbody>
@@ -896,7 +1288,7 @@ class PseudomonasHTMLGenerator:
             html += f'<tr><td><strong>{st}</strong></td><td>{len(samples_list)}</td><td><div class="genome-list">{genome_tags}</div></td></tr>'
         html += '</tbody></table></div>'
         return html
-    
+
     def _serotype_section(self, kwargs):
         patterns = kwargs['patterns']
         samples = kwargs['samples_data']
@@ -908,28 +1300,65 @@ class PseudomonasHTMLGenerator:
         Common serotypes in clinical isolates include O1, O2, O5, O6, and O11. Serotype O11 is often associated with epidemic multidrug‑resistant clones.
         <br><br>
         Knowing the serotype distribution can guide vaccine development and infection control.
+        <br><br>
+        <span style="font-size: 0.9em; color: #666;"><i class="fas fa-code-branch"></i> PAST tool originally developed by the Technical University of Denmark (CGE). This implementation uses <strong>pasty</strong> by <a href="https://github.com/rpetit3/pasty" target="_blank" style="color: #dc3545;">Dr. Robert A. Petit III</a>, which makes the original PAst tool more user‑friendly and accessible for genomic surveillance. <a href="https://cge.food.dtu.dk/services/PAst/" target="_blank" style="color: #dc3545;">Original PAst‑1.0</a></span>
         </div>
         <div class="alert-box alert-info"><i class="fas fa-info-circle"></i><div><h3>O‑Type Distribution with Genome Tags</h3><p>Each O‑type is shown with all samples as genome tags. Use the search box to highlight specific isolates across the table.</p></div></div>
         <input type="text" class="search-box" id="search-serotype" onkeyup="highlightGenome('serotype-table','search-serotype')" placeholder="🔍 Highlight genome tags in O‑type table...">
         <div class="scrollable-table"><table id="serotype-table" class="data-table"><thead><tr><th data-sort="string">O‑Type</th><th data-sort="number">Count</th><th data-sort="number">Percentage</th><th data-sort="string">Sample</th></tr></thead><tbody>
         """
         for o, cnt in o_dist.most_common():
-            if o == 'ND': 
+            if o == 'ND':
                 continue
             pct = cnt/total*100
-            # Build genome tags instead of comma list
             sample_list = [s for s, d in samples.items() if d.get('serotype', {}).get('O_Type') == o]
             genome_tags = ''.join(f'<span class="genome-tag">{s}</span>' for s in sample_list)
             html += f'<tr><td><strong>{o}</strong></td><td>{cnt}</td><td>{pct:.1f}%</td><td><div class="genome-list">{genome_tags}</div></td></tr>'
         html += '</tbody></table></div>'
         return html
-    
+
+    # Helper to generate grouping controls (reused across AMR, Virulence, Plasmid, Bacmet, Mutation)
+    def _grouping_controls(self, table_id: str) -> str:
+        return f"""
+        <div class="grouping-controls">
+            <strong><i class="fas fa-layer-group"></i> Group genomes by:</strong>
+            <button class="group-btn" data-group="ST" onclick="groupGenomesByTyping('{table_id}', 'ST')">MLST (ST)</button>
+            <button class="group-btn" data-group="Otype" onclick="groupGenomesByTyping('{table_id}', 'Otype')">O‑type</button>
+            <button class="group-btn" data-group="ST-O" onclick="groupGenomesByTyping('{table_id}', 'ST-O')">ST‑O</button>
+            <button class="group-btn" onclick="resetGenomeList('{table_id}')">Reset (flat list)</button>
+        </div>
+        """
+
     def _amr_section(self, kwargs):
         gene_centric = kwargs['gene_centric']
         amr_db = gene_centric.get('amr_databases', {})
         total_samples = len(kwargs['samples_data'])
+
         
         html = """
+        <div class="scientific-note" style="background: linear-gradient(135deg, #f8f9fa 0%, #fff3cd 100%); border-left: 6px solid #dc3545; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <span style="font-size: 1.4em;">🧬</span>
+                <div>
+                    <strong style="font-size: 1.2em; color: #a71d2a;">AMR Detection Tools & Databases</strong><br>
+                    <span style="font-size: 0.95em; color: #333;">
+                        <strong>ABRicate</strong> by <a href="https://github.com/tseemann/abricate" target="_blank" style="color: #dc3545; font-weight: bold;">Prof. Torsten Seemann</a> 
+                        <i class="fas fa-arrow-right"></i> Powered by databases:
+                        <a href="https://card.mcmaster.ca/" target="_blank" style="color: #28a745; font-weight: 600;">CARD</a>, 
+                        <a href="https://www.mediterranee-infection.com/amr-databases/" target="_blank" style="color: #17a2b8; font-weight: 600;">ARG-ANNOT</a>, 
+                        <a href="https://www.ncbi.nlm.nih.gov/pathogens/antimicrobial-resistance/" target="_blank" style="color: #007bff; font-weight: 600;">NCBI AMR</a>, 
+                        <a href="https://megares.meglab.org/" target="_blank" style="color: #fd7e14; font-weight: 600;">MEGARES</a>, 
+                        <a href="https://genepi.food.dtu.dk/resfinder" target="_blank" style="color: #20c997; font-weight: 600;">ResFinder</a>
+                        <br>
+                        <strong>AMRFinderPlus</strong> by <a href="https://github.com/ncbi/amr" target="_blank" style="color: #dc3545; font-weight: bold;">NCBI</a> 
+                        <i class="fas fa-arrow-right"></i> <span style="color: #6c757d;">Comprehensive resistance gene and point mutation detection.</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+        """
+
+        html += """
         <div class="scientific-note"><i class="fas fa-biohazard"></i> <strong>Antimicrobial Resistance in <em>P. aeruginosa</em> – A Clinical Nightmare</strong><br>
         <em>P. aeruginosa</em> exhibits both intrinsic resistance (e.g., AmpC β‑lactamase, efflux pumps MexAB‑OprM, low outer membrane permeability) and acquired resistance via mobile elements.
         <br><br>
@@ -943,8 +1372,11 @@ class PseudomonasHTMLGenerator:
         </ul>
         Use filter buttons to focus on major classes. Genes marked with ⚠️ are critical for surveillance.
         </div>
+        """
+        html += self._grouping_controls("amr-table")
+        html += """
         <input type="text" class="search-box" id="search-amr" onkeyup="searchTable('amr-table','search-amr')" placeholder="🔍 Search AMR genes...">
-        <input type="text" class="search-box" id="search-amr-genome" onkeyup="highlightGenome('amr-table','search-amr-genome')" placeholder="🔍 Highlight  (e.g., sample name)">
+        <input type="text" class="search-box" id="search-amr-genome" onkeyup="highlightGenome('amr-table','search-amr-genome')" placeholder="🔍 Highlight sample...">
         <div class="action-buttons">
         """
         filters = [
@@ -963,7 +1395,7 @@ class PseudomonasHTMLGenerator:
         html += '<button class="action-btn btn-light" onclick="document.getElementById(\'search-amr\').value=\'\'; searchTable(\'amr-table\',\'search-amr\')"><i class="fas fa-sync"></i> Clear</button>'
         html += '</div><div class="scrollable-table"><table id="amr-table" class="data-table"><thead>'
         html += '<tr><th data-sort="string">Gene</th><th data-sort="string">Database</th><th data-sort="number">Count</th><th data-sort="number">%</th><th data-sort="string">Genomes</th></tr></thead><tbody>'
-        
+
         all_genes = []
         for db, genes in amr_db.items():
             all_genes.extend(genes)
@@ -976,59 +1408,102 @@ class PseudomonasHTMLGenerator:
             html += f'<tr><td>{gene_display}</td><td>{g["database"]}</td><td>{g["count"]}</td><td>{pct}</td><td><div class="genome-list">{genome_tags}</div></td></tr>'
         html += '</tbody></table></div>'
         return html
-    
+
     def _virulence_section(self, kwargs):
-        gene_centric = kwargs['gene_centric']
-        vir_db = gene_centric.get('virulence_databases', {})
-        total_samples = len(kwargs['samples_data'])
-        html = """
-        <div class="scientific-note"><i class="fas fa-virus"></i> <strong>Virulence Factors – What Makes <em>P. aeruginosa</em> So Dangerous?</strong><br>
-        <em>P. aeruginosa</em> possesses a large arsenal of virulence determinants that contribute to acute and chronic infections.
-        <ul>
-            <li><strong>Type III Secretion System (T3SS)</strong> effectors: <strong>ExoU</strong> (phospholipase – highly cytotoxic, associated with poor outcomes), ExoS (ADP‑ribosyltransferase), ExoT, ExoY.</li>
-            <li><strong>Exotoxin A (ToxA)</strong>: Inhibits protein synthesis, similar to diphtheria toxin.</li>
-            <li><strong>Elastases (LasB, LasA)</strong>: Degrade host tissues and immune components.</li>
-            <li><strong>Biofilm components</strong> (alginate, Psl, Pel): Essential for chronic infections (e.g., cystic fibrosis).</li>
-            <li><strong>Siderophores</strong> (pyoverdine, pyochelin): Scavenge iron from host.</li>
-        </ul>
-        Genes marked with ⚠️ are critical for virulence and potential therapeutic targets.
-        </div>
-        <input type="text" class="search-box" id="search-vir" onkeyup="searchTable('vir-table','search-vir')" placeholder="🔍 Search virulence genes...">
-        <input type="text" class="search-box" id="search-vir-genome" onkeyup="highlightGenome('vir-table','search-vir-genome')" placeholder="🔍 Highlight ">
-        <div class="action-buttons">
-        """
-        filters = [
-            ("T3SS effectors (ExoU)", "exoU"), ("T3SS effectors (ExoS)", "exoS"), ("T3SS effectors (ExoT)", "exoT"), ("T3SS effectors (ExoY)", "exoY"),
-            ("Exotoxin A (toxA)", "toxA"), ("Exotoxin A (exoA)", "exoA"), ("Phospholipase C (plcH)", "plcH"), ("Phospholipase C (plcN)", "plcN"),
-            ("Elastase (lasB)", "lasB"), ("Elastase (lasA)", "lasA"), ("Protease (aprA)", "aprA"), ("Pyocyanin (phz)", "phz"),
-            ("Alginate (alg)", "alg"), ("Pyoverdine (pvd)", "pvd"), ("Pyochelin (pch)", "pch"), ("Exopolysaccharide (psl)", "psl"),
-            ("Type IV pili (pil)", "pil"), ("Flagella (fli)", "fli"), ("LecA (PA‑IL)", "lecA"), ("LecB (PA‑IIL)", "lecB"),
-            ("T6SS (hcp)", "hcp"), ("T6SS (vgrG)", "vgrG"), ("Biofilm (pel)", "pel"), ("Cup fimbriae (cup)", "cup"),
-            ("Hemolysin (phl)", "phl")
-        ]
-        for label, pattern in filters:
-            html += f'<button class="action-btn btn-info" onclick="document.getElementById(\'search-vir\').value=\'{pattern}\'; searchTable(\'vir-table\',\'search-vir\')">{label}</button>'
-        html += '<button class="action-btn btn-light" onclick="document.getElementById(\'search-vir\').value=\'\'; searchTable(\'vir-table\',\'search-vir\')">Clear</button>'
-        html += '</div><div class="scrollable-table"><table id="vir-table" class="data-table"><thead><tr><th data-sort="string">Gene</th><th data-sort="string">Database</th><th data-sort="number">Count</th><th data-sort="number">%</th><th data-sort="string">Genomes</th></tr></thead><tbody>'
-        
-        all_genes = []
-        for db, genes in vir_db.items():
-            all_genes.extend(genes)
-        all_genes.sort(key=lambda x: x['count'], reverse=True)
-        for g in all_genes:
-            pct = f"{(g['count']/total_samples)*100:.1f}%" if total_samples else "0%"
-            is_critical = any(crit.lower() in g['gene'].lower() for crit in self.data_analyzer.critical_virulence_genes)
-            gene_display = f"<strong>{g['gene']}</strong>" + (" ⚠️" if is_critical else "")
-            genome_tags = ''.join(f'<span class="genome-tag">{gen}</span>' for gen in g['genomes'])
-            html += f'<tr><td>{gene_display}</td><td>{g["database"]}</td><td>{g["count"]}</td><td>{pct}</td><td><div class="genome-list">{genome_tags}</div></td></tr>'
-        html += '</tbody></table></div>'
-        return html
-    
+            gene_centric = kwargs['gene_centric']
+            vir_db = gene_centric.get('virulence_databases', {})
+            total_samples = len(kwargs['samples_data'])
+
+            
+            html = """
+            <div class="scientific-note" style="background: linear-gradient(135deg, #f8f9fa 0%, #d1ecf1 100%); border-left: 6px solid #17a2b8; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                    <span style="font-size: 1.4em;">🦠</span>
+                    <div>
+                        <strong style="font-size: 1.2em; color: #0c5460;">Virulence Factor Database (VFDB) via ABRicate</strong><br>
+                        <span style="font-size: 0.95em; color: #333;">
+                            <strong>VFDB</strong> by <a href="http://www.mgc.ac.cn/VFs/" target="_blank" style="color: #17a2b8; font-weight: bold;">The VFDB Consortium</a> 
+                            <i class="fas fa-arrow-right"></i> Integrated through 
+                            <a href="https://github.com/tseemann/abricate" target="_blank" style="color: #dc3545; font-weight: bold;">ABRicate</a> 
+                            (Prof. Torsten Seemann).<br>
+                            <span style="color: #6c757d;">Comprehensive resource for bacterial virulence factors, essential for understanding pathogenesis and identifying therapeutic targets.</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+            """
+
+            html += """
+            <div class="scientific-note"><i class="fas fa-virus"></i> <strong>Virulence Factors – What Makes <em>P. aeruginosa</em> So Dangerous?</strong><br>
+            <em>P. aeruginosa</em> possesses a large arsenal of virulence determinants that contribute to acute and chronic infections.
+            <ul>
+                <li><strong>Type III Secretion System (T3SS)</strong> effectors: <strong>ExoU</strong> (phospholipase – highly cytotoxic, associated with poor outcomes), ExoS (ADP‑ribosyltransferase), ExoT, ExoY.</li>
+                <li><strong>Exotoxin A (ToxA)</strong>: Inhibits protein synthesis, similar to diphtheria toxin.</li>
+                <li><strong>Elastases (LasB, LasA)</strong>: Degrade host tissues and immune components.</li>
+                <li><strong>Biofilm components</strong> (alginate, Psl, Pel): Essential for chronic infections (e.g., cystic fibrosis).</li>
+                <li><strong>Siderophores</strong> (pyoverdine, pyochelin): Scavenge iron from host.</li>
+            </ul>
+            Genes marked with ⚠️ are critical for virulence and potential therapeutic targets.
+            </div>
+            """
+            html += self._grouping_controls("vir-table")
+            html += """
+            <input type="text" class="search-box" id="search-vir" onkeyup="searchTable('vir-table','search-vir')" placeholder="🔍 Search virulence genes...">
+            <input type="text" class="search-box" id="search-vir-genome" onkeyup="highlightGenome('vir-table','search-vir-genome')" placeholder="🔍 Highlight sample...">
+            <div class="action-buttons">
+            """
+            filters = [
+                ("T3SS effectors (ExoU)", "exoU"), ("T3SS effectors (ExoS)", "exoS"), ("T3SS effectors (ExoT)", "exoT"), ("T3SS effectors (ExoY)", "exoY"),
+                ("Exotoxin A (toxA)", "toxA"), ("Exotoxin A (exoA)", "exoA"), ("Phospholipase C (plcH)", "plcH"), ("Phospholipase C (plcN)", "plcN"),
+                ("Elastase (lasB)", "lasB"), ("Elastase (lasA)", "lasA"), ("Protease (aprA)", "aprA"), ("Pyocyanin (phz)", "phz"),
+                ("Alginate (alg)", "alg"), ("Pyoverdine (pvd)", "pvd"), ("Pyochelin (pch)", "pch"), ("Exopolysaccharide (psl)", "psl"),
+                ("Type IV pili (pil)", "pil"), ("Flagella (fli)", "fli"), ("LecA (PA‑IL)", "lecA"), ("LecB (PA‑IIL)", "lecB"),
+                ("T6SS (hcp)", "hcp"), ("T6SS (vgrG)", "vgrG"), ("Biofilm (pel)", "pel"), ("Cup fimbriae (cup)", "cup"),
+                ("Hemolysin (phl)", "phl")
+            ]
+            for label, pattern in filters:
+                html += f'<button class="action-btn btn-info" onclick="document.getElementById(\'search-vir\').value=\'{pattern}\'; searchTable(\'vir-table\',\'search-vir\')">{label}</button>'
+            html += '<button class="action-btn btn-light" onclick="document.getElementById(\'search-vir\').value=\'\'; searchTable(\'vir-table\',\'search-vir\')">Clear</button>'
+            html += '</div><div class="scrollable-table"><table id="vir-table" class="data-table"><thead><tr><th data-sort="string">Gene</th><th data-sort="string">Database</th><th data-sort="number">Count</th><th data-sort="number">%</th><th data-sort="string">Genomes</th></tr></thead><tbody>'
+
+            all_genes = []
+            for db, genes in vir_db.items():
+                all_genes.extend(genes)
+            all_genes.sort(key=lambda x: x['count'], reverse=True)
+            for g in all_genes:
+                pct = f"{(g['count']/total_samples)*100:.1f}%" if total_samples else "0%"
+                is_critical = any(crit.lower() in g['gene'].lower() for crit in self.data_analyzer.critical_virulence_genes)
+                gene_display = f"<strong>{g['gene']}</strong>" + (" ⚠️" if is_critical else "")
+                genome_tags = ''.join(f'<span class="genome-tag">{gen}</span>' for gen in g['genomes'])
+                html += f'<tr><td>{gene_display}</td><td>{g["database"]}</td><td>{g["count"]}</td><td>{pct}</td><td><div class="genome-list">{genome_tags}</div></td></tr>'
+            html += '</tbody></table></div>'
+            return html
+
     def _plasmid_section(self, kwargs):
         gene_centric = kwargs['gene_centric']
         plasmid_db = gene_centric.get('plasmid_databases', {})
         total_samples = len(kwargs['samples_data'])
+
+        
         html = """
+        <div class="scientific-note" style="background: linear-gradient(135deg, #f8f9fa 0%, #d4edda 100%); border-left: 6px solid #28a745; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <span style="font-size: 1.4em;">🧬</span>
+                <div>
+                    <strong style="font-size: 1.2em; color: #155724;">PlasmidFinder – Replicon Typing via ABRicate</strong><br>
+                    <span style="font-size: 0.95em; color: #333;">
+                        <strong>PlasmidFinder</strong> by <a href="https://genepi.food.dtu.dk/PlasmidFinder/" target="_blank" style="color: #28a745; font-weight: bold;">CGE (Technical University of Denmark)</a> 
+                        <i class="fas fa-arrow-right"></i> Integrated through 
+                        <a href="https://github.com/tseemann/abricate" target="_blank" style="color: #dc3545; font-weight: bold;">ABRicate</a> 
+                        (Prof. Torsten Seemann).<br>
+                        <span style="color: #6c757d;">Identify plasmid replicon types to track horizontal gene transfer and outbreak dynamics.</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+        """
+
+        html += """
         <div class="scientific-note"><i class="fas fa-dna"></i> <strong>Plasmid Replicons – Vehicles of Resistance</strong><br>
         Plasmids are extrachromosomal elements that often carry AMR and virulence genes. Identifying replicon types helps track horizontal gene transfer.
         <ul>
@@ -1039,8 +1514,11 @@ class PseudomonasHTMLGenerator:
         </ul>
         Knowing which plasmid families are circulating can reveal outbreak dynamics and guide infection control.
         </div>
+        """
+        html += self._grouping_controls("plasmid-table")
+        html += """
         <input type="text" class="search-box" id="search-plasmid" onkeyup="searchTable('plasmid-table','search-plasmid')" placeholder="🔍 Search plasmid replicons (e.g., IncP, IncQ, Col)...">
-        <input type="text" class="search-box" id="search-plasmid-genome" onkeyup="highlightGenome('plasmid-table','search-plasmid-genome')" placeholder="🔍 Highlight ">
+        <input type="text" class="search-box" id="search-plasmid-genome" onkeyup="highlightGenome('plasmid-table','search-plasmid-genome')" placeholder="🔍 Highlight sample...">
         <div class="action-buttons">
             <button class="action-btn btn-info" onclick="document.getElementById('search-plasmid').value='IncP'; searchTable('plasmid-table','search-plasmid')">IncP plasmids</button>
             <button class="action-btn btn-info" onclick="document.getElementById('search-plasmid').value='IncQ'; searchTable('plasmid-table','search-plasmid')">IncQ plasmids</button>
@@ -1061,12 +1539,32 @@ class PseudomonasHTMLGenerator:
             html += f'<tr><td><strong>{g["gene"]}</strong></td><td>{g["database"]}</td><td>{g["count"]}</td><td>{pct}</td><td><div class="genome-list">{genome_tags}</div></td></tr>'
         html += '</tbody></table></div>'
         return html
-    
+
     def _bacmet_section(self, kwargs):
         gene_centric = kwargs['gene_centric']
         bacmet_db = gene_centric.get('bacmet_databases', {})
         total_samples = len(kwargs['samples_data'])
+
+        
         html = """
+        <div class="scientific-note" style="background: linear-gradient(135deg, #f8f9fa 0%, #f8d7da 100%); border-left: 6px solid #dc3545; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <span style="font-size: 1.4em;">🧪</span>
+                <div>
+                    <strong style="font-size: 1.2em; color: #721c24;">BacMet2 – Biocide & Metal Resistance Database via ABRicate</strong><br>
+                    <span style="font-size: 0.95em; color: #333;">
+                        <strong>BacMet2</strong> by <a href="http://bacmet.biomedicine.gu.se/" target="_blank" style="color: #dc3545; font-weight: bold;">The BacMet Consortium</a> 
+                        <i class="fas fa-arrow-right"></i> Integrated through 
+                        <a href="https://github.com/tseemann/abricate" target="_blank" style="color: #dc3545; font-weight: bold;">ABRicate</a> 
+                        (Prof. Torsten Seemann).<br>
+                        <span style="color: #6c757d;">Comprehensive resource for genes conferring resistance to biocides, heavy metals, and stress responses – critical for tracking co‑selection and infection control.</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+        """
+
+        html += """
         <div class="scientific-note"><i class="fas fa-flask"></i> <strong>Bacmet2 – Biocide, Heavy Metal & Stress Resistance</strong><br>
         These genes confer resistance to disinfectants (quaternary ammonium, chlorhexidine, formaldehyde), heavy metals (mercury, arsenic, copper, silver, chromium, cadmium, zinc, lead), and stress responses.
         <br><br>
@@ -1078,8 +1576,11 @@ class PseudomonasHTMLGenerator:
             <li><strong>soxR/cpxR</strong> – Stress regulators that activate efflux pumps and promote multidrug resistance.</li>
         </ul>
         </div>
+        """
+        html += self._grouping_controls("bacmet-table")
+        html += """
         <input type="text" class="search-box" id="search-bacmet" onkeyup="searchTable('bacmet-table','search-bacmet')" placeholder="🔍 Search Bacmet genes (e.g., qac, mer, ars)...">
-        <input type="text" class="search-box" id="search-bacmet-genome" onkeyup="highlightGenome('bacmet-table','search-bacmet-genome')" placeholder="🔍 Highlight ">
+        <input type="text" class="search-box" id="search-bacmet-genome" onkeyup="highlightGenome('bacmet-table','search-bacmet-genome')" placeholder="🔍 Highlight sample...">
         <div class="action-buttons">
             <!-- Biocides -->
             <button class="action-btn btn-secondary" onclick="document.getElementById('search-bacmet').value='qac'; searchTable('bacmet-table','search-bacmet')">Biocides (qac)</button>
@@ -1117,7 +1618,6 @@ class PseudomonasHTMLGenerator:
         for g in all_genes:
             pct = f"{(g['count']/total_samples)*100:.1f}%" if total_samples else "0%"
             genome_tags = ''.join(f'<span class="genome-tag">{gen}</span>' for gen in g['genomes'])
-            # Tooltip
             tooltip = ""
             gene_lower = g['gene'].lower()
             if 'qac' in gene_lower:
@@ -1130,7 +1630,101 @@ class PseudomonasHTMLGenerator:
             html += f'<tr><td>{gene_display}</td><td>{g["database"]}</td><td>{g["count"]}</td><td>{pct}</td><td><div class="genome-list">{genome_tags}</div></td></tr>'
         html += '</tbody></table></div>'
         return html
-    
+
+    # -------------------------------------------------------------------------
+    # MUTATION SECTION (NEW)
+    # -------------------------------------------------------------------------
+    def _mutation_section(self, kwargs):
+        integrated_data = kwargs.get('integrated_data', {})
+        mutation_data = integrated_data.get('mutation_data', {})
+        mutations = mutation_data.get('mutations', [])
+        total_samples = len(kwargs.get('samples_data', {}))
+
+        if not mutations:
+            return """
+            <div class="alert-box alert-warning">
+                <i class="fas fa-dna fa-2x"></i>
+                <div>
+                    <h3>No Mutation Data Available</h3>
+                    <p>The mutation_summary.html file was not found or could not be parsed. Make sure you have run the AMRfinderPlus module with mutation reporting enabled (default) and that the file is present in the input directory.</p>
+                    <p><strong>Why track mutations?</strong> Point mutations in genes like <em>gyrA</em>, <em>parC</em>, <em>rpoB</em>, and 23S rRNA can confer resistance to fluoroquinolones, rifampin, and linezolid – even in the absence of acquired resistance genes. This is especially important for <em>P. aeruginosa</em>.</p>
+                </div>
+            </div>
+            """
+
+        html = """
+        <div class="scientific-note"><i class="fas fa-dna"></i> <strong>Point Mutations – Gene‑Centric View + Grouping by Typing</strong><br>
+        Each unique mutation (gene + element name) is shown with <strong>all genomes</strong> that carry it. Mutations in key genes (e.g., <em>gyrA, parC, rpoB, 23S rRNA</em>) can confer resistance even without acquired resistance genes. 
+        Use grouping buttons to reorganise by typing and identify clones with specific mutational profiles.
+        </div>
+        """
+        html += self._grouping_controls("mutation-table")
+        html += """
+        <input type="text" class="search-box" id="search-mutation" onkeyup="searchTable('mutation-table','search-mutation')" placeholder="🔍 Search mutation by gene or mutation name...">
+        <input type="text" class="search-box" id="search-mutation-genome" onkeyup="highlightGenome('mutation-table','search-mutation-genome')" placeholder="🔍 Highlight genomes containing specific text (e.g., sample ID)">
+        <div class="action-buttons">
+            <button class="action-btn btn-primary" onclick="exportTableToCSV('mutation-table', 'mutations.csv')"><i class="fas fa-download"></i> Export All Mutations</button>
+            <button class="action-btn btn-danger" onclick="document.getElementById('search-mutation').value='LINEZOLID'; searchTable('mutation-table','search-mutation')"><i class="fas fa-skull-crossbones"></i> Linezolid‑related</button>
+            <button class="action-btn btn-warning" onclick="document.getElementById('search-mutation').value='QUINOLONE'; searchTable('mutation-table','search-mutation')"><i class="fas fa-biohazard"></i> Quinolone‑related</button>
+            <button class="action-btn btn-warning" onclick="document.getElementById('search-mutation').value='RIFAMPIN'; searchTable('mutation-table','search-mutation')"><i class="fas fa-biohazard"></i> Rifampin‑related</button>
+            <button class="action-btn btn-info" onclick="document.getElementById('search-mutation').value='gyrA'; searchTable('mutation-table','search-mutation')"><i class="fas fa-dna"></i> gyrA</button>
+            <button class="action-btn btn-info" onclick="document.getElementById('search-mutation').value='parC'; searchTable('mutation-table','search-mutation')"><i class="fas fa-dna"></i> parC</button>
+            <button class="action-btn btn-info" onclick="document.getElementById('search-mutation').value='rpoB'; searchTable('mutation-table','search-mutation')"><i class="fas fa-dna"></i> rpoB</button>
+            <button class="action-btn btn-info" onclick="document.getElementById('search-mutation').value='23S'; searchTable('mutation-table','search-mutation')"><i class="fas fa-dna"></i> 23S rRNA</button>
+            <button class="action-btn btn-secondary" onclick="document.getElementById('search-mutation').value='mprF'; searchTable('mutation-table','search-mutation')"><i class="fas fa-dna"></i> mprF (Daptomycin)</button>
+            <button class="action-btn btn-secondary" onclick="document.getElementById('search-mutation').value='rplC'; searchTable('mutation-table','search-mutation')"><i class="fas fa-dna"></i> rplC (Linezolid)</button>
+            <button class="action-btn btn-secondary" onclick="document.getElementById('search-mutation').value='rplD'; searchTable('mutation-table','search-mutation')"><i class="fas fa-dna"></i> rplD (Linezolid)</button>
+            <button class="action-btn btn-light" onclick="document.getElementById('search-mutation').value=''; searchTable('mutation-table','search-mutation')"><i class="fas fa-sync"></i> Clear Search</button>
+        </div>
+        <div style="margin: 10px 0 20px 0; background: #f8f9fa; padding: 15px; border-radius: 8px; font-size: 0.9em; border-left: 4px solid #00BCD4;">
+            <strong><i class="fas fa-info-circle"></i> Clinical relevance of key mutations in <em>P. aeruginosa</em>:</strong><br>
+            • <strong>23S rRNA (linezolid)</strong> – Mutations (e.g., G2576T, T2500A) confer resistance to linezolid, a last‑line antibiotic for MRSA/VRE.<br>
+            • <strong>gyrA/parC (quinolones)</strong> – Mutations in the quinolone resistance‑determining region (QRDR) reduce susceptibility to fluoroquinolones (ciprofloxacin, levofloxacin).<br>
+            • <strong>rpoB (rifampin)</strong> – Mutations cause high‑level rifampin resistance, often used in combination therapy.<br>
+            • <strong>mprF (daptomycin)</strong> – Mutations can lead to daptomycin non‑susceptibility.<br>
+            • <strong>rplC/rplD (linezolid)</strong> – Ribosomal protein mutations also confer linezolid resistance.
+        </div>
+        <h3><i class="fas fa-dna"></i> All Detected Point Mutations</h3>
+        <div class="scrollable-table"><table id="mutation-table" class="data-table"><thead>
+            <tr>
+                <th data-sort="string">Gene</th>
+                <th data-sort="string">Mutation (Element name)</th>
+                <th data-sort="string">Class</th>
+                <th data-sort="string">Subclass</th>
+                <th data-sort="number">Genome Count</th>
+                <th data-sort="string">Genomes (scrollable, groupable)</th>
+            </tr>
+        </thead><tbody>
+        """
+        for mut in mutations:
+            gene = mut['gene']
+            mutation = mut['mutation']
+            class_name = mut['class']
+            subclass = mut['subclass']
+            genomes = mut['genomes']
+            count = len(genomes)
+            mutation_display = mutation[:80] + '…' if len(mutation) > 80 else mutation
+            genome_tags = ''.join(f'<span class="genome-tag">{g}</span>' for g in genomes)
+            pct = (count / total_samples * 100) if total_samples else 0
+            html += f"""
+                <tr>
+                    <td><strong>{gene}</strong></td>
+                    <td><span title='{mutation}'>{mutation_display}</span></td>
+                    <td>{class_name}</td>
+                    <td>{subclass}</td>
+                    <td><strong>{count}</strong> ({pct:.1f}%)</td>
+                    <td><div class="genome-list">{genome_tags}</div></td>
+                </tr>
+            """
+        html += """
+            </tbody>
+        </table></div>
+        """
+        return html
+
+    # -------------------------------------------------------------------------
+    # Patterns Section 
+    # -------------------------------------------------------------------------
     def _patterns_section(self, kwargs):
         patterns = kwargs['patterns']
         html = """
@@ -1142,17 +1736,16 @@ class PseudomonasHTMLGenerator:
         </ul>
         Use these tables to identify outbreak clones and potential co‑selection risks.
         </div>
-        <div class="alert-box alert-info"><i class="fas fa-table"></i><div><h3>ST‑O Combination Table </h3><p>Each combination of Sequence Type and O‑serotype with the list of samples as . Use the search box to highlight specific isolates.</p></div></div>
-        <input type="text" class="search-box" id="search-sto" onkeyup="highlightGenome('sto-table','search-sto')" placeholder="🔍 Highlight  in ST-O combinations...">
-        <div class="scrollable-table"><table id="sto-table" class="data-table"><thead><tr><th data-sort="string">ST - O</th><th data-sort="number">Count</th><th data-sort="string">Samples </th></tr></thead><tbody>
+        <div class="alert-box alert-info"><i class="fas fa-table"></i><div><h3>ST‑O Combination Table</h3><p>Each combination of Sequence Type and O‑serotype with the list of samples as tags. Use the search box to highlight specific isolates.</p></div></div>
+        <input type="text" class="search-box" id="search-sto" onkeyup="highlightGenome('sto-table','search-sto')" placeholder="🔍 Highlight sample in ST-O combinations...">
+        <div class="scrollable-table"><table id="sto-table" class="data-table"><thead><tr><th data-sort="string">ST - O</th><th data-sort="number">Count</th><th data-sort="string">Samples</th></tr></thead><tbody>
         """
         sto = patterns.get('st_o_combinations', {})
         for combo, samples_list in sorted(sto.items(), key=lambda x: len(x[1]), reverse=True):
             genome_tags = ''.join(f'<span class="genome-tag">{s}</span>' for s in samples_list)
             html += f'<tr><td><strong>{combo}</strong></td><td>{len(samples_list)}</td><td><div class="genome-list">{genome_tags}</div></td></tr>'
         html += '</tbody></table></div>'
-        
-        # Gene co-occurrence top 100
+
         cooc = patterns.get('gene_cooccurrence', {})
         cooc_list = []
         for g1, partners in cooc.items():
@@ -1170,27 +1763,166 @@ class PseudomonasHTMLGenerator:
         else:
             html += '<p>No gene co‑occurrence data available.</p>'
         return html
-    
-    def _aiguide_section(self, kwargs):
-        return """
-        <div class="scientific-note"><i class="fas fa-robot"></i> <strong>🤖 AI Assistant Guide – Your Co‑Pilot for Science</strong><br>
-        This HTML report contains a complete JSON data dump. You can upload the <strong>genius_pseudomonas_ultimate_report.json</strong> file (located in the output directory) to ChatGPT, Claude, Gemini, or any AI that accepts file uploads.
-        </div>
-        <div class="alert-box alert-info"><i class="fas fa-lightbulb"></i><div><h3>Example questions for <em>P. aeruginosa</em> analysis:</h3>
-        <ul>
-        <li><strong>Which STs carry carbapenemase genes (blaKPC, blaNDM, blaVIM, blaIMP)?</strong></li>
-        <li><strong>List all samples with <em>exoU</em> (cytotoxic effector) and their O‑serotypes.</strong></li>
-        <li><strong>What is the most common O‑serotype among ST111?</strong></li>
-        <li><strong>Show me the ST‑O combinations associated with high‑risk AMR profiles (e.g., ST235‑O11).</strong></li>
-        <li><strong>Which resistance genes co‑occur most frequently with <em>blaVIM‑2</em>?</strong></li>
-        <li><strong>Are there samples with both colistin resistance (<em>mcr</em>) and <em>exoU</em>?</strong></li>
-        <li><strong>Which plasmid replicons are most common in isolates carrying carbapenemases?</strong></li>
-        <li><strong>What is the prevalence of biocide resistance genes (<em>qac</em>) in your dataset?</strong></li>
-        </ul>
-        <p><strong>Ethical use reminder:</strong> AI can hallucinate. Always verify critical numbers against the original tables. Never paste unreviewed AI text directly into a manuscript. Use AI as a brainstorming and drafting assistant, not as a final authority.</p>
+
+    # -------------------------------------------------------------------------
+    # Citation Tab 
+    # -------------------------------------------------------------------------
+    def _citation_section(self):
+        colours = [
+            '#E3F2FD', '#E8F5E9', '#FFF3E0', '#FCE4EC', '#F3E5F5',
+            '#E0F7FA', '#FFF8E1', '#FBE9E7', '#EDE7F6', '#E0F2F1',
+            '#F1F8E9', '#FFFDE7', '#FCE4EC', '#E3F2FD', '#E8EAF6'
+        ]
+        colour_index = 0
+
+        def format_citation(name, citation_text, link_type, link_url):
+            nonlocal colour_index
+            colour = colours[colour_index % len(colours)]
+            colour_index += 1
+            if link_type == 'doi':
+                link_html = f'<a href="https://doi.org/{link_url}" target="_blank" class="doi"><i class="fas fa-external-link-alt"></i> {link_url}</a>'
+            else:
+                link_html = f'<a href="{link_url}" target="_blank" class="url"><i class="fas fa-external-link-alt"></i> {link_url}</a>'
+            return f"""
+            <div class="citation-card" style="background: {colour}; border-left-color: var(--citation-color);">
+                <strong>{name}</strong> – {citation_text} {link_html}
+                <button class="copy-btn" data-citation='{citation_text} {link_url}' style="background: #006064;">📋 Copy</button>
+            </div>
+            """
+        html = """
+        <div class="alert-box alert-info"><i class="fas fa-quote-right fa-2x"></i><div><h3>📚 How to Cite GENIUS P. aeruginosa Ultimate Reporter and Its Dependencies</h3><p>If you use this tool in your research, please cite the main tool and the relevant third‑party tools and databases.</p></div></div>
+        """
+        html += format_citation(
+            "PseudoScope",
+            "Beckley B, Amarh V. PseudoScope: a species‑specific bioinformatics suite for rapid and accessible Pseudomonas aeruginosa genomic analysis. Github 2026",
+            "url",
+            "https://github.com/brown-beckley/pseudoscope"
+        )
+        html += format_citation(
+            "MLST (Pasteur scheme)",
+            "Seemann T. MLST: Scan contig files against PubMLST typing schemes. GitHub.",
+            "url",
+            "https://github.com/tseemann/mlst"
+        )
+        html += format_citation(
+            "PAST (P. aeruginosa serotyping)",
+            "Jolley KA, Bray JE, Maiden MCJ. Open‑access bacterial population genomics: BIGSdb software, the PubMLST.org website and their applications. Wellcome Open Res. 2018;3:124.",
+            "doi",
+            "10.12688/wellcomeopenres.14826.1"
+        )
+        html += format_citation(
+            "AMRFinderPlus",
+            "Feldgarden M, et al. AMRFinderPlus and the Reference Gene Catalog facilitate examination of the genomic links among antimicrobial resistance, stress response, and virulence. Sci Rep. 2021;11(1):12728.",
+            "doi",
+            "10.1038/s41598-021-91456-0"
+        )
+        html += format_citation(
+            "ABRicate",
+            "Seemann T. ABRicate: mass screening of contigs for antibiotic resistance genes. GitHub.",
+            "url",
+            "https://github.com/tseemann/abricate"
+        )
+        html += format_citation(
+            "CARD",
+            "McArthur AG, et al. The comprehensive antibiotic resistance database. Antimicrob Agents Chemother. 2013;57(7):3348-57.",
+            "doi",
+            "10.1128/AAC.00419-13"
+        )
+        html += format_citation(
+            "ResFinder",
+            "Florensa AF, et al. ResFinder – an open online resource for identification of antimicrobial resistance genes in next‑generation sequencing data and prediction of phenotypes from genotypes. Microb Genom. 2022;8(1):000748.",
+            "doi",
+            "10.1099/mgen.0.000748"
+        )
+        html += format_citation(
+            "VFDB",
+            "Chen L, et al. VFDB 2012 update: toward the genetic diversity and molecular evolution of bacterial virulence factors. Nucleic Acids Res. 2012;40(Database issue):D641-5.",
+            "doi",
+            "10.1093/nar/gkr989"
+        )
+        html += format_citation(
+            "PlasmidFinder",
+            "Carattoli A, et al. In silico detection and typing of plasmids using PlasmidFinder and plasmid multilocus sequence typing. Antimicrob Agents Chemother. 2014;58(7):3895-903.",
+            "doi",
+            "10.1128/AAC.02412-14"
+        )
+        html += format_citation(
+            "BacMet",
+            "Pal C, et al. BacMet: antibacterial biocide and metal resistance genes database. Nucleic Acids Res. 2014;42(Database issue):D737-43.",
+            "doi",
+            "10.1093/nar/gkt1252"
+        )
+        html += format_citation(
+            "MEGARes",
+            "Doster E, et al. MEGARes 2.0: a database for classification of antimicrobial drug, biocide and metal resistance determinants in metagenomic sequence data. Nucleic Acids Res. 2020;48(D1):D561-D569.",
+            "doi",
+            "10.1093/nar/gkz1010"
+        )
+        html += format_citation(
+            "Biopython",
+            "Cock PJ, et al. Biopython: freely available Python tools for computational molecular biology and bioinformatics. Bioinformatics. 2009;25(11):1422-3.",
+            "doi",
+            "10.1093/bioinformatics/btp163"
+        )
+        html += """
+        <div class="alert-box alert-success"><i class="fas fa-hand-peace"></i><div><strong>Suggested acknowledgement:</strong><br>
+        "Genomic analysis was performed using PseudoScope [Beckley & Amarh, 2026] which integrates MLST [Seemann, 2018] using the PubMLST database [Jolley et al., 2018], ABRicate [Seemann, 2018], AMRFinderPlus [Feldgarden et al., 2021], and PAST serotyping for comprehensive P. aeruginosa characterization. Antimicrobial resistance genes were identified using the CARD [McArthur et al., 2013] and ResFinder [Florensa et al., 2022] databases. For biocide and heavy metal resistance genes, BacMet [Pal et al., 2014] was used. Virulence and plasmid screening were performed with ABRicate using the VFDB [Chen et al., 2012] and PlasmidFinder [Carattoli et al., 2014] databases."
         </div></div>
         """
-    
+        return html
+
+    # -------------------------------------------------------------------------
+    # Guide Tab
+    # -------------------------------------------------------------------------
+    def _guide_section(self):
+        return """
+        <div class="alert-box alert-info"><i class="fas fa-question-circle fa-2x"></i><div><h3>📘 Welcome to GENIUS P. aeruginosa Ultimate Report – Your Guide</h3><p>This guide explains how to get the most out of each tab, why multiple databases are used, and some practical tips (with a touch of humour).</p></div></div>
+        <div style="background: #f0f7f0; padding:20px; border-radius:12px; margin:20px 0;">
+        <h4><i class="fas fa-cogs"></i> How to Use the Report</h4>
+        <ul>
+            <li><strong>Summary</strong> – Overview of your dataset and key statistics.</li>
+            <li><strong>Sample Overview</strong> – List of all samples with ST, O‑type, and virulence counts.</li>
+            <li><strong>FASTA QC</strong> – Assembly quality metrics. Good assemblies = reliable gene calls.</li>
+            <li><strong>MLST</strong> – ST distribution and sample lists. High‑risk clones are highlighted in the notes.</li>
+            <li><strong>O‑Serotype</strong> – Serotype distribution with genome tags. Use highlight to track specific isolates.</li>
+            <li><strong>AMR Genes</strong> – Gene‑centric table of resistance genes. Use the grouping buttons (ST, O‑type, ST‑O) to see which clones carry which genes. Filter buttons for major resistance families.</li>
+            <li><strong>Virulence</strong> – Same grouping and filtering for virulence factors. Identify hypervirulent clones.</li>
+            <li><strong>Plasmid Replicons</strong> – Plasmid types that can carry resistance genes.</li>
+            <li><strong>Bacmet2</strong> – Biocide and heavy metal resistance genes – important for hospital hygiene.</li>
+            <li><strong>Mutations</strong> – Point mutations that can confer resistance. Group and filter to see which clones have specific mutational profiles.</li>
+            <li><strong>Patterns</strong> – ST‑O combinations and gene co‑occurrence. Find outbreak clones and co‑selection links.</li>
+            <li><strong>Citation</strong> – All required citations, copy‑able with one click, with distinct coloured cards.</li>
+            <li><strong>Call to Action</strong> – Learn about the global AMR burden and how you can contribute.</li>
+            <li><strong>Export</strong> – Download tables as CSV and full JSON for AI or downstream analysis.</li>
+        </ul>
+        </div>
+        <div style="background: #fff0f0; padding:20px; border-radius:12px; margin:20px 0; border-left: 5px solid #dc3545;">
+        <h4><i class="fas fa-database"></i> Why Multiple Databases?</h4>
+        <p>Some users ask: "Why use AMRfinder <strong>and</strong> ABRicate with CARD, ResFinder, and NCBI?"</p>
+        <p><strong>Because no single database is perfect.</strong> Each has strengths and biases. For example:</p>
+        <ul>
+            <li><strong>AMRfinder</strong> – Curated by NCBI, excellent for clinically relevant genes, but may miss some environmental or novel variants.</li>
+            <li><strong>CARD</strong> – Comprehensive with detailed resistance mechanisms, but often lag behind newly discovered genes.</li>
+            <li><strong>ResFinder</strong> – Frequently updated and widely used in clinical labs, but focuses on acquired resistance.</li>
+            <li><strong>NCBI</strong> – Large but sometimes includes non‑specific hits.</li>
+        </ul>
+        <p>By combining them, we <strong>maximise sensitivity</strong> and provide a consensus view. If a gene appears in multiple databases, it's a strong signal. If only one, it's worth double‑checking. <strong>Humour:</strong> Think of it like asking three friends what happened at the party – you get the full story, not just one biased version. 😄</p>
+        <p>Also, some databases perform better for certain species or gene families. For <em>P. aeruginosa</em>, CARD and ResFinder are generally excellent, but AMRfinder catches many carbapenemase variants. We give you all the data, you decide what to trust.</p>
+        </div>
+        <div style="background: #e8f5e9; padding:20px; border-radius:12px; margin:20px 0; border-left: 5px solid #28a745;">
+        <h4><i class="fas fa-lightbulb"></i> Pro Tips</h4>
+        <ul>
+            <li><strong>Grouping</strong> – In AMR, Virulence, Plasmid, Bacmet, and Mutation tabs, click "Group by ST" or "Group by O‑type" to instantly see which clones harbour specific genes or mutations. This is incredibly powerful for outbreak tracking.</li>
+            <li><strong>Highlighting</strong> – Use the "Highlight sample" search boxes to find a particular isolate across all tables – it will turn yellow!</li>
+            <li><strong>Export</strong> – You can export any table as CSV. The JSON file is ideal for AI tools – upload it to ChatGPT/Claude and ask questions about your data.</li>
+            <li><strong>Print</strong> – Each section has a print button to save as PDF for reports.</li>
+        </ul>
+        </div>
+        """
+
+    # -------------------------------------------------------------------------
+    # Call to Action
+    # -------------------------------------------------------------------------
     def _calltoaction_section(self):
         return """
         <div class="alert-box alert-info"><i class="fas fa-globe fa-2x"></i><div>
@@ -1198,7 +1930,7 @@ class PseudomonasHTMLGenerator:
         <p>Antimicrobial resistance (AMR) kills an estimated <strong>1.27 million people directly each year</strong>. <em>Pseudomonas aeruginosa</em> is a WHO critical‑priority pathogen, especially when carbapenem‑resistant. Genomic surveillance is our best tool to track resistant clones, understand transmission, and guide infection control.</p>
         <p>We developed <strong>GENIUS P. aeruginosa Ultimate Reporter</strong> as part of the <strong>ESCAPE AMR</strong> project – an open‑source initiative targeting all ESKAPE pathogens. Our goal is to empower researchers, especially in low‑resource settings, with user‑friendly genomic analysis tools.</p>
         </div></div>
-        
+
         <div style="background:#e8f5e9; padding:20px; border-radius:12px; margin:20px 0;">
         <h3><i class="fas fa-bacterium"></i> ESCAPE AMR – Our Vision</h3>
         <p>We believe the name “ESCAPE” is also a call to action:</p>
@@ -1211,7 +1943,7 @@ class PseudomonasHTMLGenerator:
             <li><strong>E</strong>very day we delay, more lives are at stake – act now.</li>
         </ul>
         </div>
-        
+
         <div style="text-align:center; margin:40px 0;">
             <i class="fas fa-star" style="font-size:3em; color:#ffc107;"></i>
             <h3>🤝 We Invite You to Contribute!</h3>
@@ -1225,8 +1957,11 @@ class PseudomonasHTMLGenerator:
             <p><i class="fas fa-hand-holding-heart"></i> If you are a funder or organisation interested in supporting the <strong>ESCAPE AMR</strong> project, please reach out. Together we can build a free, open‑source ecosystem for genomic surveillance of all ESKAPE pathogens.</p>
         </div>
         """
-    
-    def _export_section(self, kwargs):
+
+    # -------------------------------------------------------------------------
+    # Export Section
+    # -------------------------------------------------------------------------
+    def _export_section(self):
         return """
         <div class="alert-box alert-info"><i class="fas fa-download"></i><div>Export data tables as CSV or download complete JSON.</div></div>
         <div class="action-buttons">
@@ -1235,6 +1970,7 @@ class PseudomonasHTMLGenerator:
             <button class="action-btn btn-primary" onclick="exportTableToCSV('vir-table','virulence_genes.csv')">Virulence Genes CSV</button>
             <button class="action-btn btn-primary" onclick="exportTableToCSV('plasmid-table','plasmid_replicons.csv')">Plasmid Replicons CSV</button>
             <button class="action-btn btn-primary" onclick="exportTableToCSV('bacmet-table','bacmet_genes.csv')">Bacmet2 Genes CSV</button>
+            <button class="action-btn btn-primary" onclick="exportTableToCSV('mutation-table','mutations.csv')">Mutations CSV</button>
             <button class="action-btn btn-primary" onclick="exportTableToCSV('qc-table','fasta_qc.csv')">FASTA QC CSV</button>
             <button class="action-btn btn-primary" onclick="exportTableToCSV('cooc-table','gene_cooccurrence.csv')">Co‑occurrence CSV</button>
             <button class="action-btn btn-success" onclick="location.href='genius_pseudomonas_ultimate_report.json'">Download JSON</button>
@@ -1255,13 +1991,13 @@ class GeniusPseudomonasUltimateReporter:
         self.html_generator = PseudomonasHTMLGenerator(self.analyzer)
         self.metadata = {
             "tool_name": "GENIUS P. aeruginosa Ultimate Reporter",
-            "version": "2.1.0",
+            "version": "2.3.0",
             "author": "Brown Beckley <brownbeckley94@gmail.com>",
             "affiliation": "University of Ghana Medical School",
             "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "input_directory": str(self.input_dir)
         }
-    
+
     def find_html_files(self) -> Dict[str, List[Path]]:
         print("🔍 Searching for HTML reports...")
         html_files = {
@@ -1283,7 +2019,7 @@ class GeniusPseudomonasUltimateReporter:
             if v:
                 print(f"  📁 {k.upper()}: {len(v)} files found")
         return html_files
-    
+
     def integrate_all_data(self, html_files: Dict[str, List[Path]]) -> Dict[str, Any]:
         print("\n🔗 Integrating data...")
         integrated = {
@@ -1291,24 +2027,30 @@ class GeniusPseudomonasUltimateReporter:
             'samples': {},
             'patterns': {},
             'gene_centric': {},
-            'qc_data': {}
+            'qc_data': {},
+            'mutation_data': {}
         }
-        
+
+        # QC data
         if html_files['qc']:
             integrated['qc_data'] = self.parser.parse_qc_report(html_files['qc'][0])
-        
+
+        # MLST
         mlst_data = {}
         if html_files['mlst']:
             mlst_data = self.parser.parse_mlst_report(html_files['mlst'][0])
-        
+
+        # Serotype
         past_data = {}
         if html_files['past']:
             past_data = self.parser.parse_past_report(html_files['past'][0])
-        
+
+        # AMRfinder
         amr_by_sample, amr_gene_freq = {}, {}
         if html_files['amrfinder']:
             amr_by_sample, amr_gene_freq = self.parser.parse_amrfinder_report(html_files['amrfinder'][0])
-        
+
+        # ABRicate
         abricate_by_sample = defaultdict(dict)
         abricate_gene_freq = {}
         for f in html_files['abricate']:
@@ -1321,44 +2063,63 @@ class GeniusPseudomonasUltimateReporter:
             for samp, gs in genes_by_sample.items():
                 abricate_by_sample[samp][db_name] = gs
             abricate_gene_freq[db_name] = gene_freq
-        
+
+        # Mutation data
+        mutation_data = {}
+        mutation_html = self.input_dir / "mutation_summary.html"
+        if not mutation_html.exists():
+            # Try within a subfolder
+            for subdir in self.input_dir.glob("*"):
+                if subdir.is_dir():
+                    test_path = subdir / "mutation_summary.html"
+                    if test_path.exists():
+                        mutation_html = test_path
+                        break
+        if mutation_html.exists():
+            mutation_data = self.parser.parse_mutation_summary_html(mutation_html)
+        else:
+            print("  ⚠️ mutation_summary.html not found; mutation tab will be empty")
+        integrated['mutation_data'] = mutation_data
+
+        # Collect all samples
         all_samples = set()
         all_samples.update(mlst_data.keys())
         all_samples.update(past_data.keys())
         all_samples.update(amr_by_sample.keys())
         all_samples.update(abricate_by_sample.keys())
         all_samples.update(integrated['qc_data'].keys())
-        
+
         if not all_samples:
             print("❌ No samples found in any report!")
             return {}
-        
+
         print(f"📊 Found {len(all_samples)} unique samples")
-        
+
+        # Build sample entries
         for sample in all_samples:
             virulence_genes = []
             for db in ['vfdb', 'ecoli_vf', 'pa_vf', 'pseudomonas_vf']:
                 if db in abricate_by_sample.get(sample, {}):
                     virulence_genes.extend(abricate_by_sample[sample][db])
-            
+
             integrated['samples'][sample] = {
                 'mlst': mlst_data.get(sample, {'ST': 'ND', 'Allele_Profile': 'ND'}),
                 'serotype': past_data.get(sample, {'O_Type': 'ND'}),
                 'amr_genes': amr_by_sample.get(sample, []),
                 'virulence_genes': list(set(virulence_genes))
             }
-        
+
         integrated['gene_frequencies'] = {
             'amrfinder': amr_gene_freq,
             'abricate': abricate_gene_freq
         }
-        
+
         print("\n🧠 Processing gene-centric analysis...")
         integrated['gene_centric'] = self.analyzer.create_gene_centric_tables(integrated)
         integrated['patterns'] = self.analyzer.create_cross_genome_patterns(integrated)
-        
+
         return integrated
-    
+
     def generate_json_report(self, data: Dict[str, Any]) -> Path:
         print("\n📝 Generating JSON report...")
         out = self.output_dir / "genius_pseudomonas_ultimate_report.json"
@@ -1366,7 +2127,7 @@ class GeniusPseudomonasUltimateReporter:
             json.dump(data, f, indent=2, default=str)
         print(f"    ✅ JSON saved: {out}")
         return out
-    
+
     def generate_csv_reports(self, data: Dict[str, Any]):
         print("\n📊 Generating CSV reports...")
         samples_df = pd.DataFrame([{
@@ -1376,8 +2137,7 @@ class GeniusPseudomonasUltimateReporter:
             'Virulence_Count': len(d['virulence_genes'])
         } for s, d in data['samples'].items()])
         samples_df.to_csv(self.output_dir / "sample_overview.csv", index=False)
-        
-        # AMR genes
+
         amr_rows = []
         for db, genes in data['gene_centric'].get('amr_databases', {}).items():
             for g in genes:
@@ -1389,8 +2149,7 @@ class GeniusPseudomonasUltimateReporter:
                 })
         if amr_rows:
             pd.DataFrame(amr_rows).to_csv(self.output_dir / "amr_genes.csv", index=False)
-        
-        # Virulence genes
+
         vir_rows = []
         for db, genes in data['gene_centric'].get('virulence_databases', {}).items():
             for g in genes:
@@ -1402,8 +2161,7 @@ class GeniusPseudomonasUltimateReporter:
                 })
         if vir_rows:
             pd.DataFrame(vir_rows).to_csv(self.output_dir / "virulence_genes.csv", index=False)
-        
-        # Plasmid replicons
+
         plasmid_rows = []
         for db, genes in data['gene_centric'].get('plasmid_databases', {}).items():
             for g in genes:
@@ -1415,8 +2173,7 @@ class GeniusPseudomonasUltimateReporter:
                 })
         if plasmid_rows:
             pd.DataFrame(plasmid_rows).to_csv(self.output_dir / "plasmid_replicons.csv", index=False)
-        
-        # Bacmet2 genes
+
         bacmet_rows = []
         for db, genes in data['gene_centric'].get('bacmet_databases', {}).items():
             for g in genes:
@@ -1428,8 +2185,23 @@ class GeniusPseudomonasUltimateReporter:
                 })
         if bacmet_rows:
             pd.DataFrame(bacmet_rows).to_csv(self.output_dir / "bacmet_genes.csv", index=False)
-        
-        # Co-occurrence
+
+        # Mutations
+        mutation_data = data.get('mutation_data', {})
+        mutations = mutation_data.get('mutations', [])
+        if mutations:
+            mut_rows = []
+            for m in mutations:
+                mut_rows.append({
+                    'Gene': m['gene'],
+                    'Mutation': m['mutation'],
+                    'Class': m['class'],
+                    'Subclass': m['subclass'],
+                    'Count': m['count'],
+                    'Genomes': ';'.join(m['genomes'])
+                })
+            pd.DataFrame(mut_rows).to_csv(self.output_dir / "mutations.csv", index=False)
+
         cooc = data['patterns'].get('gene_cooccurrence', {})
         cooc_list = []
         for g1, partners in cooc.items():
@@ -1439,31 +2211,31 @@ class GeniusPseudomonasUltimateReporter:
         cooc_list.sort(key=lambda x: x[2], reverse=True)
         if cooc_list:
             pd.DataFrame(cooc_list[:100], columns=['Gene1', 'Gene2', 'Count']).to_csv(self.output_dir / "gene_cooccurrence.csv", index=False)
-        
+
         print("    ✅ CSV reports generated.")
-    
+
     def run(self):
         print("=" * 80)
         print("🧠 GENIUS P. AERUGINOSA ULTIMATE REPORTER v2.0.0")
         print("=" * 80)
         print(f"📁 Input directory: {self.input_dir}")
-        
+
         html_files = self.find_html_files()
         if not any(html_files.values()):
             print("❌ No HTML report files found!")
             return False
-        
+
         data = self.integrate_all_data(html_files)
         if not data:
             return False
-        
+
         print("\n" + "=" * 80)
         print("📊 GENERATING ULTIMATE REPORTS")
         print("=" * 80)
         self.generate_json_report(data)
         self.generate_csv_reports(data)
         self.html_generator.generate_main_report(data, self.output_dir)
-        
+
         total_samples = len(data['samples'])
         patterns = data['patterns']
         gene_centric = data['gene_centric']
@@ -1471,7 +2243,8 @@ class GeniusPseudomonasUltimateReporter:
         total_vir = sum(len(genes) for genes in gene_centric.get('virulence_databases', {}).values())
         total_plasmid = sum(len(genes) for genes in gene_centric.get('plasmid_databases', {}).values())
         total_bacmet = sum(len(genes) for genes in gene_centric.get('bacmet_databases', {}).values())
-        
+        mutation_count = len(data.get('mutation_data', {}).get('mutations', []))
+
         print("\n" + "=" * 80)
         print("✅ ULTIMATE ANALYSIS COMPLETE!")
         print("=" * 80)
@@ -1484,6 +2257,8 @@ class GeniusPseudomonasUltimateReporter:
         print(f"   • virulence_genes.csv")
         print(f"   • plasmid_replicons.csv")
         print(f"   • bacmet_genes.csv")
+        if mutation_count > 0:
+            print(f"   • mutations.csv")
         print(f"   • gene_cooccurrence.csv")
         print(f"\n📈 ANALYSIS SUMMARY:")
         print(f"   • {total_samples} total samples analyzed")
@@ -1491,15 +2266,17 @@ class GeniusPseudomonasUltimateReporter:
         print(f"   • {total_vir} virulence genes")
         print(f"   • {total_plasmid} plasmid replicons")
         print(f"   • {total_bacmet} Bacmet2 genes")
+        print(f"   • {mutation_count} unique point mutations")
         print(f"   • {len(patterns.get('st_o_combinations', {}))} unique ST‑O combinations")
         print("\n🎯 Next steps:")
         print("   1. Open genius_pseudomonas_ultimate_report.html in your browser")
-        print("   2. Explore AMR, Virulence, Plasmid, and Bacmet tabs – each has detailed educational notes")
-        print("   3. Use filter buttons to focus on key resistance/virulence genes")
-        print("   4. Examine ST‑O combination table and gene co‑occurrence under Patterns tab")
-        print("   5. Use the genome highlight search boxes in MLST, Patterns, and other tabs to track specific isolates")
-        print("   6. Export data using the Export tab or individual CSV buttons")
-        print("   7. Use the AI Guide to ask ChatGPT/Claude about your JSON data")
+        print("   2. Explore AMR, Virulence, Plasmid, Bacmet, and Mutations tabs – each has detailed educational notes")
+        print("   3. Use filter buttons to focus on key resistance/virulence/mutation categories")
+        print("   4. Try the grouping buttons (ST, O‑type, ST‑O) to see which clones carry specific genes or mutations")
+        print("   5. Examine ST‑O combination table and gene co‑occurrence under Patterns tab")
+        print("   6. Use the genome highlight search boxes to track specific isolates across tables")
+        print("   7. Export data using the Export tab or individual CSV buttons")
+        print("   8. Use the AI Guide to ask ChatGPT/Claude about your JSON data")
         print("\n" + "=" * 80)
         return True
 
@@ -1509,11 +2286,11 @@ class GeniusPseudomonasUltimateReporter:
 # =============================================================================
 def main():
     parser = argparse.ArgumentParser(
-        description='GENIUS P. aeruginosa Ultimate Reporter (v2.0) - Gene-Centric Analysis with Plasmid & Bacmet Tabs, Genome Highlighting',
+        description='GENIUS P. aeruginosa Ultimate Reporter (v2.0.0) - Gene-Centric Analysis with Grouping, Mutation Tab, and Enhanced Features',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python p_ultimate_.py -i /path/to/html/reports
+  python p_ultimate.py -i /path/to/html/reports
 
 Author: Brown Beckley <brownbeckley94@gmail.com>
 Affiliation: University of Ghana Medical School, Department of Medical Biochemistry
@@ -1523,20 +2300,20 @@ Affiliation: University of Ghana Medical School, Department of Medical Biochemis
                         help='Directory containing HTML report files')
     parser.add_argument('-o', '--output-dir',
                         help='Custom output directory (default: input_dir/GENIUS_PSEUDOMONAS_ULTIMATE_REPORTS)')
-    
+
     args = parser.parse_args()
     input_dir = Path(args.input_dir)
-    
+
     if not input_dir.exists():
         print(f"❌ Input directory not found: {input_dir}")
         sys.exit(1)
-    
+
     reporter = GeniusPseudomonasUltimateReporter(input_dir)
-    
+
     if args.output_dir:
         reporter.output_dir = Path(args.output_dir)
         reporter.output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     success = reporter.run()
     sys.exit(0 if success else 1)
 
