@@ -492,6 +492,7 @@ class PseudoScopeOrchestrator:
         try:
             shutil.copytree(module_orig, Path(temp_dir) / "viz_module", dirs_exist_ok=True)
 
+            # Copy all CSV files from ultimate reports
             ultimate_dir = final_out / self.output_dirs['summary']
             if ultimate_dir.exists():
                 for csv_file in ultimate_dir.glob("*.csv"):
@@ -499,6 +500,20 @@ class PseudoScopeOrchestrator:
                     self.logger.info(f"Copied {csv_file.name} to temporary viz directory")
             else:
                 self.logger.warning("Ultimate reports directory not found")
+
+            # Copy QC summary files (TSV + HTML) from the QC results directory
+            qc_dir = final_out / self.output_dirs['qc']
+            if qc_dir.exists():
+                qc_tsv = qc_dir / "PseudoScope_FASTA_QC_summary.tsv"
+                qc_html = qc_dir / "PseudoScope_FASTA_QC_summary.html"
+                if qc_tsv.exists():
+                    shutil.copy2(qc_tsv, Path(temp_dir) / qc_tsv.name)
+                    self.logger.info(f"Copied {qc_tsv.name} to temporary viz directory")
+                if qc_html.exists():
+                    shutil.copy2(qc_html, Path(temp_dir) / qc_html.name)
+                    self.logger.info(f"Copied {qc_html.name} to temporary viz directory")
+            else:
+                self.logger.warning("QC results directory not found")
 
             script_path = Path(temp_dir) / "viz_module" / "p_visualizer.py"
             if not script_path.exists():
