@@ -10,7 +10,7 @@
 
 #### **Complete MLST, serotyping, AMR, virulence & visualisation in minutes — not hours**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/bbeckley-hub/pseudoscope)
+
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/bbeckleyhub/pseudoscope)](https://hub.docker.com/r/bbeckleyhub/pseudoscope)
@@ -381,7 +381,7 @@ Each has its own strengths; PseudoScope focuses on **speed, local execution, and
 
 ## 🌐 **Part of the ESKAPE Web Tools Suite**
 
-PseudoScope is one of a growing collection of species‑optimised pipelines for the **ESKAPE pathogens** + _E. coli _(Enterococcus faecium, Staphylococcus aureus, Klebsiella pneumoniae, Acinetobacter baumannii, Pseudomonas aeruginosa, and Enterobacter species). Other tools in development:
+PseudoScope is one of a growing collection of species‑optimised pipelines for the **ESKAPE pathogens** + **E. coli**  (Enterococcus faecium, Staphylococcus aureus, Klebsiella pneumoniae, Acinetobacter baumannii, Pseudomonas aeruginosa, and Enterobacter species). Other tools in development:
 
 - **StaphScope** – *S. aureus* (MLST, spa, SCCmec)
 - **Kleboscope** – *K. pneumoniae* (MLST, K/O typing, AMR)
@@ -515,8 +515,8 @@ AcinetoScope integrates several essential third-party tools and databases. If yo
 ```bibtex
 @software{petit_pasty_2021,
   author = {Petit, R. A.},
-  title = {PASTY: A tool for serotyping of  Pseudomonas aeruginosa},
-  year = {2021},
+  title = {PASTY: A tool easily taken advantage of for in silico serogrouping of Pseudomonas aeruginosa isolates},
+  year = {2024},
   publisher = {GitHub},
   url = {https://github.com/rpetit3/pasty},
   note = {PAST and PASTY  (for Pseudomonas aeruginosa)  }
