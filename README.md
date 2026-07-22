@@ -447,11 +447,11 @@ If you use PseudoScope in your research, please cite:
 ```bibtex
 @software{beckley2026pseudoscope,
   author = {Brown Beckley},
-  title = {PseudoScope: A species-optimized computational pipeline for Pseudomonas aeruginosa genomic typing and surveillance},
+  title = {PseudoScope: A species‑specific bioinformatics suite for rapid and accessible Pseudomonas aeruginosa genomic analysis},
   year = {2026},
   publisher = {GitHub},
   url = {https://github.com/bbeckley-hub/pseudoscope},
-  version = {1.0.0}
+  version = {1.1.0}
 }
 ```
 
