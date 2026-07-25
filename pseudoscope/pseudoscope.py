@@ -269,9 +269,9 @@ class PseudoScopeOrchestrator:
         cmd = [sys.executable, str(script), "--update-db"]
         result = subprocess.run(cmd, cwd=amr_module, capture_output=True, text=True)
         if result.stdout:
-            self.logger.info(f"AMR update STDOUT:\n{result.stdout}")
+            self.print_info(f"AMR update STDOUT:\n{result.stdout}")
         if result.stderr:
-            self.logger.warning(f"AMR update STDERR:\n{result.stderr}")
+            self.print_warning(f"AMR update STDERR:\n{result.stderr}")
         if result.returncode == 0:
             self.print_success("AMR database updated successfully.")
             ver_cmd = [sys.executable, str(script), "--db-version"]
