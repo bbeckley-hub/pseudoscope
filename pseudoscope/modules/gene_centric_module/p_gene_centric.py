@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GENIUS PSEUDOMONAS AERUGINOSA ULTIMATE REPORTER (v2.0.0)
+GENIUS PSEUDOMONAS AERUGINOSA ULTIMATE REPORTER (v2.0.1)
 ================================================================================
 Advanced HTML parser and gene‑centric report generator for P. aeruginosa genomic data.
 Processes outputs from PseudoScope pipeline (MLST, PAST serotyping, AMRfinder,
@@ -21,7 +21,7 @@ HTML report with:
 Author: Brown Beckley <brownbeckley94@gmail.com>
 Affiliation: University of Ghana Medical School, Department of Medical Biochemistry
 Version: 2.0.0
-Date: 2026-06-23
+Date: 2026-07-25
 License: MIT
 ================================================================================
 """
@@ -614,7 +614,7 @@ class PseudomonasHTMLGenerator:
             qc_data=integrated_data.get('qc_data', {}),
             integrated_data=integrated_data
         )
-        output_file = output_dir / "genius_pseudomonas_ultimate_report.html"
+        output_file = output_dir / "genius_pseudomonas_ultimate_gene_centric_report.html"
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(html)
         print(f"    ✅ HTML report saved: {output_file}")
@@ -1013,7 +1013,7 @@ class PseudomonasHTMLGenerator:
 <p>Gene‑Centric Cross‑Genome Analysis with Plasmid, Bacmet2 & Mutation Integration</p>
 <div class="metadata-bar"><div class="metadata-item"><i class="fas fa-calendar"></i> {metadata.get('analysis_date','Unknown')}</div>
 <div class="metadata-item"><i class="fas fa-database"></i> Samples: {len(samples)}</div>
-<div class="metadata-item"><i class="fas fa-user-md"></i> GENIUS P. aeruginosa v2.0.0</div>
+<div class="metadata-item"><i class="fas fa-user-md"></i> GENIUS P. aeruginosa v2.0.1</div>
 <div class="metadata-item"><i class="fas fa-university"></i> University of Ghana Medical School</div></div></div>
 <div class="dashboard-grid">
     <div class="dashboard-card card-summary" onclick="switchTab('summary')"><div class="card-number">{len(samples)}</div><div class="card-label">Total Samples</div><i class="fas fa-vial fa-2x"></i></div>
@@ -1058,7 +1058,7 @@ class PseudomonasHTMLGenerator:
 <div id="calltoaction-tab" class="tab-content">{self._calltoaction_section()}</div>
 <div id="export-tab" class="tab-content">{self._export_section()}</div>
 <div class="footer">
-    <h3>GENIUS P. aeruginosa Ultimate Reporter v2.0.0</h3>
+    <h3>GENIUS P. aeruginosa Ultimate Reporter v2.0.1</h3>
     <p>University of Ghana Medical School | Department of Medical Biochemistry</p>
     <p>Author: Brown Beckley &lt;brownbeckley94@gmail.com&gt;</p>
     <p>GitHub: <a href="https://github.com/bbeckley-hub/pseudoscope" target="_blank">https://github.com/bbeckley-hub/pseudoscope</a></p>
@@ -1790,7 +1790,7 @@ class PseudomonasHTMLGenerator:
             </div>
             """
         html = """
-        <div class="alert-box alert-info"><i class="fas fa-quote-right fa-2x"></i><div><h3>📚 How to Cite GENIUS P. aeruginosa Ultimate Reporter and Its Dependencies</h3><p>If you use this tool in your research, please cite the main tool and the relevant third‑party tools and databases.</p></div></div>
+        <div class="alert-box alert-info"><i class="fas fa-quote-right fa-2x"></i><div><h3>📚 How to Cite PseudoScope and Its Dependencies</h3><p>If you use this tool in your research, please cite the main tool and the relevant third‑party tools and databases.</p></div></div>
         """
         html += format_citation(
             "PseudoScope",
@@ -1805,10 +1805,22 @@ class PseudomonasHTMLGenerator:
             "https://github.com/tseemann/mlst"
         )
         html += format_citation(
-            "PAST (P. aeruginosa serotyping)",
-            "Jolley KA, Bray JE, Maiden MCJ. Open‑access bacterial population genomics: BIGSdb software, the PubMLST.org website and their applications. Wellcome Open Res. 2018;3:124.",
-            "doi",
-            "10.12688/wellcomeopenres.14826.1"
+            "PAST (P. aeruginosa serotyping) – Original Tool",
+            "Thomsen MCF, et al. A web‑based tool for serotyping of Pseudomonas aeruginosa. CGE, Technical University of Denmark.",
+            "url",
+            "https://cge.food.dtu.dk/services/PAst/"
+        )
+        html += format_citation(
+            "pasty",
+            "Petit RA III, pasty: A tool easily taken advantage of for in silico serogrouping of Pseudomonas aeruginosa isolates. GitHub.",
+            "url",
+            "https://github.com/rpetit3/pasty"
+        )
+        html += format_citation(
+            "camlhmp",
+            "Petit RA III, camlhmp: Classification through yAML Heuristic Mapping Protocol (GitHub).",
+            "url",
+            "https://github.com/rpetit3/camlhmp"
         )
         html += format_citation(
             "AMRFinderPlus",
@@ -1866,7 +1878,7 @@ class PseudomonasHTMLGenerator:
         )
         html += """
         <div class="alert-box alert-success"><i class="fas fa-hand-peace"></i><div><strong>Suggested acknowledgement:</strong><br>
-        "Genomic analysis was performed using PseudoScope [Beckley & Amarh, 2026] which integrates MLST [Seemann, 2018] using the PubMLST database [Jolley et al., 2018], ABRicate [Seemann, 2018], AMRFinderPlus [Feldgarden et al., 2021], and PAST serotyping for comprehensive P. aeruginosa characterization. Antimicrobial resistance genes were identified using the CARD [McArthur et al., 2013] and ResFinder [Florensa et al., 2022] databases. For biocide and heavy metal resistance genes, BacMet [Pal et al., 2014] was used. Virulence and plasmid screening were performed with ABRicate using the VFDB [Chen et al., 2012] and PlasmidFinder [Carattoli et al., 2014] databases."
+        "Genomic analysis was performed using PseudoScope [Beckley & Amarh, 2026] which integrates MLST [Seemann, 2018] using the PubMLST database [Jolley et al., 2018], ABRicate [Seemann, 2018], AMRFinderPlus [Feldgarden et al., 2021], and PAST serotyping [Thomsen et al., DTU] via the pasty wrapper [Petit et al., 2023] for comprehensive P. aeruginosa characterization. Antimicrobial resistance genes were identified using the CARD [McArthur et al., 2013] and ResFinder [Florensa et al., 2022] databases. For biocide and heavy metal resistance genes, BacMet [Pal et al., 2014] was used. Virulence and plasmid screening were performed with ABRicate using the VFDB [Chen et al., 2012] and PlasmidFinder [Carattoli et al., 2014] databases."
         </div></div>
         """
         return html
@@ -1928,7 +1940,7 @@ class PseudomonasHTMLGenerator:
         <div class="alert-box alert-info"><i class="fas fa-globe fa-2x"></i><div>
         <h3>The Global Burden of AMR and Our Call to Action</h3>
         <p>Antimicrobial resistance (AMR) kills an estimated <strong>1.27 million people directly each year</strong>. <em>Pseudomonas aeruginosa</em> is a WHO critical‑priority pathogen, especially when carbapenem‑resistant. Genomic surveillance is our best tool to track resistant clones, understand transmission, and guide infection control.</p>
-        <p>We developed <strong>GENIUS P. aeruginosa Ultimate Reporter</strong> as part of the <strong>ESCAPE AMR</strong> project – an open‑source initiative targeting all ESKAPE pathogens. Our goal is to empower researchers, especially in low‑resource settings, with user‑friendly genomic analysis tools.</p>
+        <p>We developed <strong>PseudoScope</strong> as part of the <strong>ESCAPE AMR</strong> project – an open‑source initiative targeting all ESKAPE pathogens. Our goal is to empower researchers, especially in low‑resource settings, with user‑friendly genomic analysis tools.</p>
         </div></div>
 
         <div style="background:#e8f5e9; padding:20px; border-radius:12px; margin:20px 0;">
@@ -1973,7 +1985,7 @@ class PseudomonasHTMLGenerator:
             <button class="action-btn btn-primary" onclick="exportTableToCSV('mutation-table','mutations.csv')">Mutations CSV</button>
             <button class="action-btn btn-primary" onclick="exportTableToCSV('qc-table','fasta_qc.csv')">FASTA QC CSV</button>
             <button class="action-btn btn-primary" onclick="exportTableToCSV('cooc-table','gene_cooccurrence.csv')">Co‑occurrence CSV</button>
-            <button class="action-btn btn-success" onclick="location.href='genius_pseudomonas_ultimate_report.json'">Download JSON</button>
+            <button class="action-btn btn-success" onclick="location.href='genius_pseudomonas_ultimate_gene_centric_report.json'">Download JSON</button>
         </div>
         """
 
@@ -1984,7 +1996,7 @@ class PseudomonasHTMLGenerator:
 class GeniusPseudomonasUltimateReporter:
     def __init__(self, input_dir: Path):
         self.input_dir = Path(input_dir)
-        self.output_dir = self.input_dir / "GENIUS_PSEUDOMONAS_ULTIMATE_REPORTS"
+        self.output_dir = self.input_dir / "GENIUS_PSEUDOMONAS_ULTIMATE_GENE_CENTRIC_REPORTS"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.parser = PseudomonasHTMLParser()
         self.analyzer = PseudomonasDataAnalyzer()
@@ -2122,7 +2134,7 @@ class GeniusPseudomonasUltimateReporter:
 
     def generate_json_report(self, data: Dict[str, Any]) -> Path:
         print("\n📝 Generating JSON report...")
-        out = self.output_dir / "genius_pseudomonas_ultimate_report.json"
+        out = self.output_dir / "genius_pseudomonas_ultimate_gene_centric_report.json"
         with open(out, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, default=str)
         print(f"    ✅ JSON saved: {out}")
@@ -2216,7 +2228,7 @@ class GeniusPseudomonasUltimateReporter:
 
     def run(self):
         print("=" * 80)
-        print("🧠 GENIUS P. AERUGINOSA ULTIMATE REPORTER v2.0.0")
+        print("🧠 GENIUS P. AERUGINOSA ULTIMATE REPORTER v2.0.1")
         print("=" * 80)
         print(f"📁 Input directory: {self.input_dir}")
 
@@ -2250,8 +2262,8 @@ class GeniusPseudomonasUltimateReporter:
         print("=" * 80)
         print(f"📁 Output directory: {self.output_dir}")
         print(f"📄 Files generated:")
-        print(f"   • genius_pseudomonas_ultimate_report.html (Interactive report)")
-        print(f"   • genius_pseudomonas_ultimate_report.json (Complete data)")
+        print(f"   • genius_pseudomonas_ultimate_gene_centric_report.html (Interactive report)")
+        print(f"   • genius_pseudomonas_ultimate_gene_centric_report.json (Complete data)")
         print(f"   • sample_overview.csv")
         print(f"   • amr_genes.csv")
         print(f"   • virulence_genes.csv")
@@ -2269,7 +2281,7 @@ class GeniusPseudomonasUltimateReporter:
         print(f"   • {mutation_count} unique point mutations")
         print(f"   • {len(patterns.get('st_o_combinations', {}))} unique ST‑O combinations")
         print("\n🎯 Next steps:")
-        print("   1. Open genius_pseudomonas_ultimate_report.html in your browser")
+        print("   1. Open genius_pseudomonas_ultimate_gene_centric_report.html in your browser")
         print("   2. Explore AMR, Virulence, Plasmid, Bacmet, and Mutations tabs – each has detailed educational notes")
         print("   3. Use filter buttons to focus on key resistance/virulence/mutation categories")
         print("   4. Try the grouping buttons (ST, O‑type, ST‑O) to see which clones carry specific genes or mutations")
@@ -2286,11 +2298,11 @@ class GeniusPseudomonasUltimateReporter:
 # =============================================================================
 def main():
     parser = argparse.ArgumentParser(
-        description='GENIUS P. aeruginosa Ultimate Reporter (v2.0.0) - Gene-Centric Analysis with Grouping, Mutation Tab, and Enhanced Features',
+        description='GENIUS P. aeruginosa Ultimate Reporter (v2.0.1) - Gene-Centric Analysis with Grouping, Mutation Tab, and Enhanced Features',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python p_ultimate.py -i /path/to/html/reports
+  python p_gene_centric.py -i /path/to/html/reports
 
 Author: Brown Beckley <brownbeckley94@gmail.com>
 Affiliation: University of Ghana Medical School, Department of Medical Biochemistry
@@ -2299,7 +2311,7 @@ Affiliation: University of Ghana Medical School, Department of Medical Biochemis
     parser.add_argument('-i', '--input-dir', required=True,
                         help='Directory containing HTML report files')
     parser.add_argument('-o', '--output-dir',
-                        help='Custom output directory (default: input_dir/GENIUS_PSEUDOMONAS_ULTIMATE_REPORTS)')
+                        help='Custom output directory (default: input_dir/GENIUS_PSEUDOMONAS_ULTIMATE_GENE_CENTRIC_REPORTS)')
 
     args = parser.parse_args()
     input_dir = Path(args.input_dir)

@@ -4,8 +4,8 @@ PseudoScope - Unified Orchestrator for P. aeruginosa Analysis
 Author: Brown Beckley <brownbeckley94@gmail.com>
 GitHub: bbeckley-hub
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2026-06-25
-Version: 1.1.0 (HPC‑friendly with temporary directory isolation)
+Date: 2026-07-25
+Version: 1.2.0 (HPC‑friendly with temporary directory isolation + signal handlers)
 """
 
 import os
@@ -18,12 +18,14 @@ import random
 import tempfile
 import logging
 import traceback
+import signal
+import atexit
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 
 class Color:
@@ -49,7 +51,7 @@ class Color:
 
 
 class PseudoScopeOrchestrator:
-    """Main orchestrator: runs all analyses inside temporary directories."""
+    """Main orchestrator: runs all analyses inside temporary directories with signal handling."""
 
     def __init__(self, quiet: bool = False, keep_temp: bool = False):
         self.base_dir = Path(__file__).parent
@@ -57,6 +59,8 @@ class PseudoScopeOrchestrator:
         self.keep_temp = keep_temp
         self.logger = None
         self.user_output_dir = None
+        self.temp_dirs = []          # track temp dirs for cleanup
+        self.running = True
 
         self.setup_colors()
         self.quotes = self._get_scientific_quotes()
@@ -72,10 +76,12 @@ class PseudoScopeOrchestrator:
             'past': 'past_results',
             'abricate': 'pseudo_abricate_results',
             'amr': 'pseudo_amrfinder_results',
-            'summary': 'GENIUS_PSEUDOMONAS_ULTIMATE_REPORTS',
-            'viz': 'GENIUS_PSEUDOMONAS_VISUAL_DASHBOARD'
+            'summary': 'GENIUS_PSEUDOMONAS_ULTIMATE_GENE_CENTRIC_REPORTS',
+            'viz': 'GENIUS_PSEUDOMONAS_VISUAL_DASHBOARD',
+            'sample_centric': 'GENIUS_PSEUDOMONAS_SAMPLE_CENTRIC_REPORTS'
         }
 
+        # Files required for gene‑centric summary
         self.summary_html_files = {
             'mlst_summary.html': 'mlst_results/mlst_summary.html',
             'past_summary.html': 'past_results/past_summary.html',
@@ -93,6 +99,30 @@ class PseudoScopeOrchestrator:
             'pseudo_ecoli_vf_summary_report.html': 'pseudo_abricate_results/pseudo_ecoli_vf_summary_report.html',
             'mutation_summary.html': 'pseudo_amrfinder_results/mutation_summary.html',
         }
+
+        self.warnings = []
+        self.errors = []
+
+        # Register signal handlers
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        atexit.register(self._cleanup_temp_dirs)
+
+    def _signal_handler(self, signum, frame):
+        self.print_warning(f"Received signal {signum}. Cleaning up and exiting...")
+        self.running = False
+        self._cleanup_temp_dirs()
+        sys.exit(1)
+
+    def _cleanup_temp_dirs(self):
+        if self.keep_temp:
+            self.print_info("Keeping temporary directories (--keep-temp set).")
+            return
+        for d in self.temp_dirs:
+            if d and Path(d).exists():
+                shutil.rmtree(d, ignore_errors=True)
+                self.logger.info(f"Removed temporary directory: {d}")
+        self.temp_dirs = []
 
     def setup_colors(self) -> None:
         self.color_info = Color.CYAN
@@ -149,11 +179,13 @@ class PseudoScopeOrchestrator:
             print(f"{self.color_warning}⚠️{Color.RESET} {message}")
         if self.logger:
             self.logger.warning(message)
+        self.warnings.append(message)
 
     def print_error(self, message: str) -> None:
         print(f"{self.color_error}✗{Color.RESET} {message}")
         if self.logger:
             self.logger.error(message)
+        self.errors.append(message)
 
     def _get_scientific_quotes(self) -> List[Dict[str, str]]:
         return [
@@ -236,17 +268,19 @@ class PseudoScopeOrchestrator:
         self.print_info("Updating AMRfinderPlus database...")
         cmd = [sys.executable, str(script), "--update-db"]
         result = subprocess.run(cmd, cwd=amr_module, capture_output=True, text=True)
+        if result.stdout:
+            self.logger.info(f"AMR update STDOUT:\n{result.stdout}")
+        if result.stderr:
+            self.logger.warning(f"AMR update STDERR:\n{result.stderr}")
         if result.returncode == 0:
             self.print_success("AMR database updated successfully.")
             ver_cmd = [sys.executable, str(script), "--db-version"]
             ver_result = subprocess.run(ver_cmd, cwd=amr_module, capture_output=True, text=True)
-            if ver_result.returncode == 0:
+            if ver_result.returncode == 0 and ver_result.stdout:
                 self.print_info(f"Database version: {ver_result.stdout.strip()}")
             return True
         else:
             self.print_error("AMR database update failed.")
-            if result.stderr:
-                print(result.stderr)
             return False
 
     # ----------------------------------------------------------------------
@@ -300,6 +334,7 @@ class PseudoScopeOrchestrator:
             return False, f"Module directory not found: {module_orig}"
 
         temp_dir = tempfile.mkdtemp(prefix=f"pseudoscope_{module_name}_")
+        self.temp_dirs.append(temp_dir)
         self.logger.info(f"Temporary directory for {module_name}: {temp_dir}")
 
         try:
@@ -362,7 +397,7 @@ class PseudoScopeOrchestrator:
             return False, f"Exception: {e}"
 
         finally:
-            if not self.keep_temp:
+            if not self.keep_temp and self.running:
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 self.logger.info(f"Removed temporary directory: {temp_dir}")
 
@@ -425,15 +460,16 @@ class PseudoScopeOrchestrator:
         )
 
     def run_summary(self, final_out: Path) -> Tuple[bool, str]:
-        module_orig = self.base_dir / "modules" / "summary_module"
+        module_orig = self.base_dir / "modules" / "gene_centric_module"
         if not module_orig.exists():
             return False, f"Summary module not found: {module_orig}"
 
         temp_dir = tempfile.mkdtemp(prefix="pseudoscope_summary_")
+        self.temp_dirs.append(temp_dir)
         self.logger.info(f"Temporary directory for summary: {temp_dir}")
 
         try:
-            shutil.copytree(module_orig, Path(temp_dir) / "summary_module", dirs_exist_ok=True)
+            shutil.copytree(module_orig, Path(temp_dir) / "gene_centric_module", dirs_exist_ok=True)
 
             for target_name, source_rel in self.summary_html_files.items():
                 src = final_out / source_rel
@@ -443,7 +479,7 @@ class PseudoScopeOrchestrator:
                 else:
                     self.logger.warning(f"Required summary file not found: {src}")
 
-            script_path = Path(temp_dir) / "summary_module" / "p_ultimate.py"
+            script_path = Path(temp_dir) / "gene_centric_module" / "p_gene_centric.py"
             if not script_path.exists():
                 return False, f"Summary script not found: {script_path}"
 
@@ -477,7 +513,97 @@ class PseudoScopeOrchestrator:
             return False, f"Exception: {e}"
 
         finally:
-            if not self.keep_temp:
+            if not self.keep_temp and self.running:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                self.logger.info(f"Removed temporary directory: {temp_dir}")
+
+    def run_sample_centric(self, final_out: Path) -> Tuple[bool, str]:
+        module_orig = self.base_dir / "modules" / "sample_centric_module"
+        if not module_orig.exists():
+            return False, f"Sample‑centric module not found: {module_orig}"
+
+        temp_dir = tempfile.mkdtemp(prefix="pseudoscope_sample_centric_")
+        self.temp_dirs.append(temp_dir)
+        self.logger.info(f"Temporary directory for sample‑centric: {temp_dir}")
+
+        try:
+            shutil.copytree(module_orig, Path(temp_dir) / "sample_centric_module", dirs_exist_ok=True)
+
+            # Copy required files from final_out to temp_dir
+            # 1. QC TSV/HTML
+            qc_src = final_out / self.output_dirs['qc']
+            if qc_src.exists():
+                for f in qc_src.glob("PseudoScope_FASTA_QC_summary.*"):
+                    shutil.copy2(f, Path(temp_dir) / f.name)
+                    self.logger.info(f"Copied {f.name} to sample‑centric temp")
+            # 2. MLST files
+            mlst_src = final_out / self.output_dirs['mlst']
+            if mlst_src.exists():
+                for f in mlst_src.glob("mlst_summary.*"):
+                    shutil.copy2(f, Path(temp_dir) / f.name)
+                    self.logger.info(f"Copied {f.name} to sample‑centric temp")
+            # 3. PAST HTML if exists
+            past_src = final_out / self.output_dirs['past']
+            if past_src.exists():
+                for f in past_src.glob("past_summary.html"):
+                    shutil.copy2(f, Path(temp_dir) / f.name)
+                    self.logger.info(f"Copied {f.name} to sample‑centric temp")
+            # 4. AMRfinder TSV and HTML + mutation TSV
+            amr_src = final_out / self.output_dirs['amr']
+            if amr_src.exists():
+                for f in amr_src.glob("pseudo_amrfinder_summary.*"):
+                    shutil.copy2(f, Path(temp_dir) / f.name)
+                    self.logger.info(f"Copied {f.name} to sample‑centric temp")
+                # mutation summary TSV (without prefix)
+                mut_tsv = amr_src / "mutation_summary.tsv"
+                if mut_tsv.exists():
+                    shutil.copy2(mut_tsv, Path(temp_dir) / mut_tsv.name)
+                    self.logger.info(f"Copied {mut_tsv.name} to sample‑centric temp")
+            # 5. ABRicate TSVs and HTMLs
+            abr_src = final_out / self.output_dirs['abricate']
+            if abr_src.exists():
+                for f in abr_src.glob("pseudo_*_abricate_summary.tsv"):
+                    shutil.copy2(f, Path(temp_dir) / f.name)
+                    self.logger.info(f"Copied {f.name} to sample‑centric temp")
+                for f in abr_src.glob("pseudo_*_summary_report.html"):
+                    shutil.copy2(f, Path(temp_dir) / f.name)
+                    self.logger.info(f"Copied {f.name} to sample‑centric temp")
+
+            script_path = Path(temp_dir) / "sample_centric_module" / "p_sample_centric.py"
+            if not script_path.exists():
+                return False, f"Sample‑centric script not found: {script_path}"
+
+            cmd = [sys.executable, str(script_path), "-i", "."]
+            self.logger.info(f"Running sample‑centric: {' '.join(cmd)}")
+            result = subprocess.run(cmd, cwd=temp_dir, capture_output=True, text=True)
+
+            if result.stdout:
+                self.logger.info(f"Sample‑centric STDOUT:\n{result.stdout}")
+            if result.stderr:
+                self.logger.warning(f"Sample‑centric STDERR:\n{result.stderr}")
+
+            if result.returncode != 0:
+                self.logger.error(f"Sample‑centric failed with return code {result.returncode}")
+                return False, f"Sample‑centric failed (rc={result.returncode})"
+
+            src = Path(temp_dir) / self.output_dirs['sample_centric']
+            dst = final_out / self.output_dirs['sample_centric']
+            if src.exists():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+                self.logger.info(f"Sample‑centric reports copied to {dst}")
+            else:
+                self.logger.warning("Sample‑centric reports not found")
+
+            return True, "Sample‑centric completed successfully"
+
+        except Exception as e:
+            self.logger.error(f"Sample‑centric exception: {e}\n{traceback.format_exc()}")
+            return False, f"Exception: {e}"
+
+        finally:
+            if not self.keep_temp and self.running:
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 self.logger.info(f"Removed temporary directory: {temp_dir}")
 
@@ -487,12 +613,12 @@ class PseudoScopeOrchestrator:
             return False, f"Visualisation module not found: {module_orig}"
 
         temp_dir = tempfile.mkdtemp(prefix="pseudoscope_viz_")
+        self.temp_dirs.append(temp_dir)
         self.logger.info(f"Temporary directory for visualisation: {temp_dir}")
 
         try:
             shutil.copytree(module_orig, Path(temp_dir) / "viz_module", dirs_exist_ok=True)
 
-            # Copy all CSV files from ultimate reports
             ultimate_dir = final_out / self.output_dirs['summary']
             if ultimate_dir.exists():
                 for csv_file in ultimate_dir.glob("*.csv"):
@@ -501,19 +627,14 @@ class PseudoScopeOrchestrator:
             else:
                 self.logger.warning("Ultimate reports directory not found")
 
-            # Copy QC summary files (TSV + HTML) from the QC results directory
             qc_dir = final_out / self.output_dirs['qc']
             if qc_dir.exists():
                 qc_tsv = qc_dir / "PseudoScope_FASTA_QC_summary.tsv"
                 qc_html = qc_dir / "PseudoScope_FASTA_QC_summary.html"
                 if qc_tsv.exists():
                     shutil.copy2(qc_tsv, Path(temp_dir) / qc_tsv.name)
-                    self.logger.info(f"Copied {qc_tsv.name} to temporary viz directory")
                 if qc_html.exists():
                     shutil.copy2(qc_html, Path(temp_dir) / qc_html.name)
-                    self.logger.info(f"Copied {qc_html.name} to temporary viz directory")
-            else:
-                self.logger.warning("QC results directory not found")
 
             script_path = Path(temp_dir) / "viz_module" / "p_visualizer.py"
             if not script_path.exists():
@@ -548,9 +669,22 @@ class PseudoScopeOrchestrator:
             return False, f"Exception: {e}"
 
         finally:
-            if not self.keep_temp:
+            if not self.keep_temp and self.running:
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 self.logger.info(f"Removed temporary directory: {temp_dir}")
+
+    # ----------------------------------------------------------------------
+    # Cleanup top‑level HTML files
+    # ----------------------------------------------------------------------
+    def _cleanup_top_level_html(self, final_out: Path) -> None:
+        """Remove any .html files directly in the output directory (not in subdirectories)."""
+        for item in final_out.iterdir():
+            if item.is_file() and item.suffix.lower() == '.html':
+                try:
+                    item.unlink()
+                    self.logger.info(f"Removed top-level HTML file: {item.name}")
+                except Exception as e:
+                    self.logger.warning(f"Could not remove {item.name}: {e}")
 
     # ----------------------------------------------------------------------
     # Full pipeline
@@ -562,6 +696,7 @@ class PseudoScopeOrchestrator:
         threads: int = 1,
         skip: Dict[str, bool] = None,
         skip_summary: bool = False,
+        skip_sample_centric: bool = False,
         skip_viz: bool = False,
         update_amr_only: bool = False,
         abricate_minid: Optional[int] = None,
@@ -602,7 +737,8 @@ class PseudoScopeOrchestrator:
             ("PAST", not skip.get('past', False)),
             ("ABRicate", not skip.get('abricate', False)),
             ("AMR", not skip.get('amr', False)),
-            ("Ultimate Reporter", not skip_summary),
+            ("Ultimate Reporter (Gene‑centric)", not skip_summary),
+            ("Sample‑centric Reporter", not skip_sample_centric),
             ("Visualisation", not skip_viz),
         ]
         self.print_header("ANALYSIS PLAN", "Modules to be executed")
@@ -611,13 +747,6 @@ class PseudoScopeOrchestrator:
             self._print(f"   {status} - {name}", force=True)
             if self.logger:
                 self.logger.info(f"Plan: {name} {'ENABLED' if enabled else 'SKIPPED'}")
-
-        if abricate_minid is not None or abricate_mincov is not None:
-            self.print_info(f"ABRicate thresholds: minid={abricate_minid or 'default'}, mincov={abricate_mincov or 'default'}")
-        if past_min_pident is not None or past_min_coverage is not None:
-            self.print_info(f"PAST thresholds: min-pident={past_min_pident or 'default'}, min-coverage={past_min_coverage or 'default'}")
-        if amr_min_identity is not None or amr_min_coverage is not None or amr_skip_mutations:
-            self.print_info(f"AMR thresholds: min-identity={amr_min_identity or 'default'}, min-coverage={amr_min_coverage or 'default'}, skip-mutations={amr_skip_mutations}")
 
         # First batch: QC, MLST, PAST (parallel)
         batch1_tasks = []
@@ -689,9 +818,9 @@ class PseudoScopeOrchestrator:
         else:
             self.print_info("Skipping AMR analysis.")
 
-        # Summary
+        # Gene‑centric summary
         if not skip_summary:
-            self.print_header("ULTIMATE REPORTER", "Gene‑centric Integration")
+            self.print_header("ULTIMATE REPORTER (Gene‑centric)", "Gene‑centric Integration")
             success, log = self.run_summary(final_out)
             lines = log.strip().split('\n')
             for line in lines[:8]:
@@ -702,7 +831,22 @@ class PseudoScopeOrchestrator:
                 self.print_warning("Ultimate reporter had issues")
             self.display_random_quote()
         else:
-            self.print_info("Skipping ultimate reporter.")
+            self.print_info("Skipping gene‑centric reporter.")
+
+        # Sample‑centric summary
+        if not skip_sample_centric:
+            self.print_header("SAMPLE‑CENTRIC REPORTER", "Interactive Isolate Boxes")
+            success, log = self.run_sample_centric(final_out)
+            lines = log.strip().split('\n')
+            for line in lines[:8]:
+                self._print(line, force=True)
+            if success:
+                self.print_success("Sample‑centric reporter completed")
+            else:
+                self.print_warning("Sample‑centric reporter had issues")
+            self.display_random_quote()
+        else:
+            self.print_info("Skipping sample‑centric reporter.")
 
         # Visualisation
         if not skip_viz and not skip_summary:
@@ -719,6 +863,9 @@ class PseudoScopeOrchestrator:
         elif skip_summary:
             self.print_info("Skipping visualisation because summary was skipped.")
 
+        # Clean up top‑level HTML files
+        self._cleanup_top_level_html(final_out)
+
         elapsed = datetime.now() - start_time
         self.print_header("ANALYSIS COMPLETE", f"Time: {str(elapsed).split('.')[0]}")
         self.print_success(f"All results in: {final_out}")
@@ -728,8 +875,19 @@ class PseudoScopeOrchestrator:
                 self.print_info(f"  📁 {subdir.name} ({cnt} files)")
         self.display_random_quote()
 
-        self.print_info("Please cite:")
-        self.print_info("Beckley B, Amarh V. PseudoScope: a species‑specific bioinformatics suite for rapid and accessible Pseudomonas aeruginosa genomic analysis. Github 2026 https://github.com/brown-beckley/pseudoscope")
+        # Print citation
+        self.print_info("\nPlease cite:")
+        self.print_info("  Beckley B, Amarh V. PseudoScope: a species‑specific bioinformatics suite for rapid and accessible Pseudomonas aeruginosa genomic analysis. Github 2026 https://github.com/brown-beckley/pseudoscope")
+
+        # Print any warnings/errors
+        if self.warnings:
+            self.print_warning("\nWarnings encountered:")
+            for w in self.warnings:
+                self.print_info(f"  ⚠️ {w}")
+        if self.errors:
+            self.print_error("\nErrors encountered:")
+            for e in self.errors:
+                self.print_info(f"  ✗ {e}")
 
 
 # -----------------------------------------------------------------------------
@@ -752,7 +910,8 @@ def print_colored_help() -> None:
         (f"{Color.BRIGHT_GREEN}--skip-past{Color.RESET}", "Skip PAST serotyping"),
         (f"{Color.BRIGHT_GREEN}--skip-abricate{Color.RESET}", "Skip ABRicate"),
         (f"{Color.BRIGHT_GREEN}--skip-amr{Color.RESET}", "Skip AMRfinderPlus"),
-        (f"{Color.BRIGHT_GREEN}--skip-summary{Color.RESET}", "Skip ultimate summary report"),
+        (f"{Color.BRIGHT_GREEN}--skip-summary{Color.RESET}", "Skip gene‑centric ultimate summary report"),
+        (f"{Color.BRIGHT_GREEN}--skip-sample-centric{Color.RESET}", "Skip sample‑centric interactive report"),
         (f"{Color.BRIGHT_GREEN}--skip-viz{Color.RESET}", "Skip visualisation dashboard"),
         (f"{Color.BRIGHT_GREEN}--abricate-minid INT{Color.RESET}", "ABRicate minimum %identity (default: 80)"),
         (f"{Color.BRIGHT_GREEN}--abricate-mincov INT{Color.RESET}", "ABRicate minimum %coverage (default: 80)"),
@@ -775,7 +934,7 @@ def print_colored_help() -> None:
   # Skip QC and visualisation, only run MLST and PAST
   pseudoscope -i "{Color.BRIGHT_CYAN}*.fasta{Color.RESET}" -o results --skip-qc --skip-summary --skip-viz
 
-  # Custom thresholds for PAST and ABRicate (note: ABRicate uses integers)
+  # Custom thresholds for PAST and ABRicate
   pseudoscope -i "{Color.BRIGHT_CYAN}*.fna{Color.RESET}" -o results --past-min-pident 90 --past-min-coverage 85 --abricate-minid 85 --abricate-mincov 80
 
   # AMR with custom identity/coverage and disable mutation reporting
@@ -811,7 +970,7 @@ def print_colored_help() -> None:
     print()
     print(f"{Color.BRIGHT_YELLOW}OPTIONS:{Color.RESET}")
     for opt, desc in options:
-        print(f"  {opt:<35} {desc}")
+        print(f"  {opt:<38} {desc}")
     print(epilog)
 
 
@@ -830,6 +989,7 @@ def main() -> None:
     parser.add_argument('--skip-abricate', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--skip-amr', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--skip-summary', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--skip-sample-centric', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--skip-viz', action='store_true', help=argparse.SUPPRESS)
     # Thresholds
     parser.add_argument('--abricate-minid', type=int, help=argparse.SUPPRESS)
@@ -875,6 +1035,7 @@ def main() -> None:
             threads=args.threads,
             skip=skip,
             skip_summary=args.skip_summary,
+            skip_sample_centric=args.skip_sample_centric,
             skip_viz=args.skip_viz,
             abricate_minid=args.abricate_minid,
             abricate_mincov=args.abricate_mincov,

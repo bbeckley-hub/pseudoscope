@@ -5,8 +5,8 @@ Comprehensive AMR analysis for Pseudomonas aeruginosa with beautiful HTML report
 DYNAMIC DATABASE with auto-update capability
 Author: Brown Beckley <brownbeckley94@gmail.com>
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2025-12-28 / Updated 2026-06-24
-Version: 1.1.0
+Date: 2025-12-28 / Updated 2026-07-25
+Version: 1.2.0
 """
 
 import subprocess
@@ -48,7 +48,7 @@ class PseudoAMRfinderPlus:
 
         self.metadata = {
             "tool_name": "PseudoScope AMRfinderPlus",
-            "version": "1.1.0",
+            "version": "1.2.0",
             "authors": ["Brown Beckley"],
             "email": "brownbeckley94@gmail.com",
             "github": "https://github.com/bbeckley-hub",

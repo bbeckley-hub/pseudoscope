@@ -4,7 +4,7 @@ PseudoScope - MLST Module for Pseudomonas aeruginosa
 Author: Brown Beckley <brownbeckley94@gmail.com>
 GitHub: bbeckley-hub
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2025-12-29
+Date: 2026-07-225
 """
 
 import os

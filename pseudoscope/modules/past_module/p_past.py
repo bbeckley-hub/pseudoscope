@@ -4,7 +4,7 @@ PseudoScope - PAST Module for Pseudomonas aeruginosa serotyping
 Author: Brown Beckley <brownbeckley94@gmail.com>
 GitHub: bbeckley-hub
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2026-02-20 (Updated: 2026-06-25)
+Date: 2026-02-20 (Updated: 2026-07-25)
 """
 
 import os

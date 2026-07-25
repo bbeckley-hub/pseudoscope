@@ -3,7 +3,7 @@
 PseudoScope FASTA QC - Comprehensive Quality Control for Pseudomonas aeruginosa
 Author: Brown Beckley <brownbeckley94@gmail.com>
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2025-12-28
+Date: 2026-07-25
 """
 
 import os
@@ -46,7 +46,7 @@ class PseudoFASTAQC:
         # Metadata
         self.metadata = {
             "tool_name": "PseudoScope FASTA QC for Pseudomonas aeruginosa",
-            "version": "1.1.0", 
+            "version": "1.2.0", 
             "authors": ["Brown Beckley"],
             "email": "brownbeckley94@gmail.com",
             "github": "https://github.com/bbeckley-hub",

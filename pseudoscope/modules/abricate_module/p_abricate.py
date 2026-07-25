@@ -3,7 +3,7 @@
 PseudoScope ABRicate Module - Comprehensive Gene Tracking for Pseudomonas aeruginosa
 Author: Brown Beckley <brownbeckley94@gmail.com>
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2026-01-28 (Updated: 2026-06-25)
+Date: 2026-01-28 (Updated: 2026-07-25)
 """
 
 import subprocess
@@ -178,7 +178,7 @@ class PseudoAbricateExecutor:
         
         self.metadata = {
             "tool_name": "PseudoScope ABRicate for Pseudomonas aeruginosa",
-            "version": "1.1.0", 
+            "version": "1.2.0", 
             "authors": ["Brown Beckley"],
             "email": "brownbeckley94@gmail.com",
             "github": "https://github.com/bbeckley-hub",
