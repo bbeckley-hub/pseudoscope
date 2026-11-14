@@ -2,7 +2,6 @@ name: pseudoscope
 channels:
   - conda-forge
   - bioconda
-  - defaults
 dependencies:
   - python>=3.9
   - pandas>=1.5.0
@@ -20,6 +19,10 @@ dependencies:
   - scikit-learn>=1.0.0
   - networkx>=2.8
   - abricate>=1.2.0
+  - mlstdb>=1.3.0
+  - diamond>=2.1.10
+  - prodigal>=2.6.3
+  - fastani>=1.3.0
   - perl
   - pasty
   - any2fasta
@@ -34,5 +37,4 @@ dependencies:
   - perl-getopt-long
   - perl-file-which
   - pip
-  - pip:
-    - -e .
+

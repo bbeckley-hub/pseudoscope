@@ -27,3 +27,14 @@ dist/
 .DS_Store
 Thumbs.db
 pseudoscope/modules/amr_module/data/
+pseudoscope/modules/mls_module/data/
+pseudoscope/modules/mls_module/bin/
+pseudoscope/modules/mls_module/scripts/
+pseudoscope/modules/mls_module/perl5/
+pseudoscope/modules/mls_module/db/
+pseudoscope/modules/.footer_backups/
+pseudoscope/modules/mlst_module/bin/
+pseudoscope/modules/mlst_module/db/
+pseudoscope/modules/mlst_module/perl5/
+pseudoscope/modules/mlst_module/scripts/
+pseudoscope/modules/mge_module

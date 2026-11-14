@@ -1,13 +1,13 @@
 from setuptools import setup, find_packages
 from pathlib import Path
 
-# Read long description from README if exists
+# Read long description from README 
 readme_path = Path(__file__).parent / "README.md"
 long_description = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
 
 setup(
     name="pseudoscope",
-    version="1.2.0",
+    version="1.3.0",
     author="Brown Beckley",
     author_email="brownbeckley94@gmail.com",
     description="Advanced P. aeruginosa Genomic Analysis Platform",

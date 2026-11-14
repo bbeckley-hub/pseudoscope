@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# EcoliTyper Quick Cleanup Script
+# PseudoScope p Script
 echo "🧹 EcoliTyper Quick Cleanup"
 
 # Remove build directories

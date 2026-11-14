@@ -4,7 +4,15 @@ PseudoScope - PAST Module for Pseudomonas aeruginosa serotyping
 Author: Brown Beckley <brownbeckley94@gmail.com>
 GitHub: bbeckley-hub
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2026-02-20 (Updated: 2026-07-25)
+Date: 2026-02-20 (Updated: 2026-10-01)
+
+Per-sample output (1 file each):
+  - past_report.html
+
+Batch-level outputs:
+  - past_summary.csv
+  - past_summary.json
+  - past_summary.html
 """
 
 import os
@@ -16,6 +24,7 @@ import subprocess
 import random
 import shutil
 import csv
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
@@ -63,10 +72,13 @@ class PseudoPASTAnalyzer:
         """Locate pasty executable in PATH."""
         pasty_path = shutil.which("pasty")
         if not pasty_path:
-            raise FileNotFoundError("pasty not found in PATH. Please install pasty (conda install -c bioconda pasty).")
+            raise FileNotFoundError(
+                "pasty not found in PATH. Please install pasty (conda install -c bioconda pasty)."
+            )
         return pasty_path
 
     def get_random_quote(self):
+        """Return a random science quote."""
         return random.choice(self.science_quotes)
 
     def find_fasta_files(self, input_path: str) -> List[Path]:
@@ -93,13 +105,19 @@ class PseudoPASTAnalyzer:
         """Quick check for FASTA format."""
         try:
             with open(path, 'r') as f:
-                first = f.readline().strip()
-                return first.startswith('>')
-        except:
+                return f.readline().strip().startswith('>')
+        except Exception:
             return False
 
     def run_pasty(self, input_file: Path, out_dir: Path, prefix: Optional[str] = None) -> Dict[str, Any]:
-        """Run pasty on a single FASTA file and return parsed results."""
+        """Run pasty on a single FASTA file.
+
+        Emits exactly one file into the per-sample directory:
+          - past_report.html
+
+        All pasty intermediates (main TSV, details TSV, run log, raw outputs)
+        live inside a TemporaryDirectory and are removed automatically on exit.
+        """
         if prefix is None:
             prefix = input_file.stem
 
@@ -108,47 +126,61 @@ class PseudoPASTAnalyzer:
         sample_dir = out_dir / prefix
         sample_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build pasty command with thresholds
-        cmd = [
-            self.pasty_bin,
-            "-i", str(input_file),
-            "-o", str(sample_dir),
-            "--prefix", prefix,
-            "--min-pident", str(self.min_pident),
-            "--min-coverage", str(self.min_coverage)
-        ]
+        # Remove any legacy intermediates left over from earlier versions
+        for legacy in ("past_report.txt", "past_report.tsv", "pasty_run.log"):
+            legacy_path = sample_dir / legacy
+            if legacy_path.exists():
+                try:
+                    legacy_path.unlink()
+                except OSError:
+                    pass
 
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
 
-            with open(sample_dir / "pasty_run.log", 'w') as f:
-                f.write(f"STDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}")
+            cmd = [
+                self.pasty_bin,
+                "-i", str(input_file),
+                "-o", str(temp_dir),
+                "--prefix", prefix,
+                "--min-pident", str(self.min_pident),
+                "--min-coverage", str(self.min_coverage),
+            ]
 
-            main_tsv = sample_dir / f"{prefix}.tsv"
-            if not main_tsv.exists():
-                raise FileNotFoundError(f"Expected main output file not found: {main_tsv}")
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, check=True)
 
-            result_data = self._parse_tsv(main_tsv, prefix, input_file.name)
+                main_tsv = temp_dir / f"{prefix}.tsv"
+                if not main_tsv.exists():
+                    raise FileNotFoundError(
+                        f"pasty did not produce expected output: {main_tsv.name}"
+                    )
 
-            details_tsv = sample_dir / f"{prefix}.details.tsv"
-            if details_tsv.exists():
-                result_data["details"] = self._parse_details_tsv(details_tsv)
-            else:
-                result_data["details"] = []
+                result_data = self._parse_tsv(main_tsv, prefix, input_file.name)
 
-            # Add threshold info to params
-            result_data["params"] = f"min_pident={self.min_pident}, min_coverage={self.min_coverage}"
+                details_tsv = temp_dir / f"{prefix}.details.tsv"
+                result_data["details"] = (
+                    self._parse_details_tsv(details_tsv) if details_tsv.exists() else []
+                )
 
-            self._generate_reports(result_data, sample_dir)
+                result_data["params"] = (
+                    f"min_pident={self.min_pident}, min_coverage={self.min_coverage}"
+                )
 
-            print(f"✅ {input_file.name} -> {result_data['type']}")
-            return result_data
+                self._write_html_report(result_data, sample_dir)
 
-        except subprocess.CalledProcessError as e:
-            print(f"❌ pasty failed for {input_file.name}")
-            with open(sample_dir / "pasty_run.log", 'w') as f:
-                f.write(f"ERROR: {e.stderr}\n{e.stdout}")
-            return self._empty_result(prefix, f"pasty error: {e.stderr}")
+                print(f"✅ {input_file.name} -> {result_data['type']}")
+                return result_data
+
+            except subprocess.CalledProcessError as e:
+                print(f"❌ pasty failed for {input_file.name}")
+                return self._empty_result(prefix, f"pasty error: {e.stderr}")
+            except FileNotFoundError as e:
+                print(f"❌ {e}")
+                return self._empty_result(prefix, str(e))
+            except Exception as e:
+                print(f"❌ Unexpected error for {input_file.name}: {e}")
+                return self._empty_result(prefix, str(e))
 
     def _parse_tsv(self, tsv_path: Path, sample_name: str, original_filename: str) -> Dict[str, Any]:
         """Parse the main TSV output (single row)."""
@@ -160,11 +192,11 @@ class PseudoPASTAnalyzer:
         row = rows[0]
         try:
             coverage = float(row.get("coverage", 0))
-        except:
+        except (ValueError, TypeError):
             coverage = 0.0
         try:
             hits = int(row.get("hits", 0))
-        except:
+        except (ValueError, TypeError):
             hits = 0
         return {
             "sample": sample_name,
@@ -177,7 +209,7 @@ class PseudoPASTAnalyzer:
             "schema_version": row.get("schema_version", self.schema_version),
             "camlhmp_version": row.get("camlhmp_version", self.camlhmp_version),
             "params": f"min_pident={self.min_pident}, min_coverage={self.min_coverage}",
-            "comment": row.get("comment", "")
+            "comment": row.get("comment", ""),
         }
 
     def _parse_details_tsv(self, tsv_path: Path) -> List[Dict]:
@@ -189,11 +221,11 @@ class PseudoPASTAnalyzer:
                 status = row.get("status", "False").lower() == "true"
                 try:
                     coverage = float(row.get("coverage", 0))
-                except:
+                except (ValueError, TypeError):
                     coverage = 0.0
                 try:
                     hits = int(row.get("hits", 0))
-                except:
+                except (ValueError, TypeError):
                     hits = 0
                 details.append({
                     "type": row.get("type", ""),
@@ -202,11 +234,12 @@ class PseudoPASTAnalyzer:
                     "missing": row.get("missing", ""),
                     "coverage": coverage,
                     "hits": hits,
-                    "comment": row.get("comment", "")
+                    "comment": row.get("comment", ""),
                 })
         return details
 
     def _empty_result(self, sample: str, error: str = "") -> Dict[str, Any]:
+        """Return an empty result dict when typing fails."""
         return {
             "sample": sample,
             "original_filename": "",
@@ -219,95 +252,28 @@ class PseudoPASTAnalyzer:
             "camlhmp_version": self.camlhmp_version,
             "params": f"min_pident={self.min_pident}, min_coverage={self.min_coverage}",
             "comment": error,
-            "details": []
+            "details": [],
         }
 
-    def _generate_reports(self, data: Dict[str, Any], out_dir: Path):
-        """Create HTML, text, TSV, and JSON reports."""
-        self._write_text_report(data, out_dir)
-        self._write_tsv_report(data, out_dir)
-        self._write_json_report(data, out_dir)
-        self._write_html_report(data, out_dir)
-
-    def _write_text_report(self, data: Dict, out_dir: Path):
-        lines = [
-            "PSEUDOSCOPE - PAST (Pseudomonas aeruginosa serotyping) Report",
-            "==============================================================",
-            f"Sample: {data['sample']}",
-            f"Original File: {data.get('original_filename', 'N/A')}",
-            f"Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"PAST Schema: {data['schema']} v{data['schema_version']}",
-            "",
-            "SEROTYPING RESULT:",
-            "------------------",
-            f"Predicted Type: {data['type']}",
-            f"Targets matched: {data['targets']}",
-            f"Coverage: {data['coverage']:.2f}%",
-            f"Hits: {data['hits']}",
-            f"Parameters: {data['params']}",
-            f"Comment: {data.get('comment', '')}",
-            "",
-            "DETAILED RESULTS (all tested types):",
-            "-----------------------------------"
-        ]
-        if data['details']:
-            for d in data['details']:
-                lines.append(f"  {d['type']}: {d['status']} (coverage={d['coverage']:.2f}%, hits={d['hits']})")
-        else:
-            lines.append("  No detailed data available.")
-
-        with open(out_dir / "past_report.txt", 'w') as f:
-            f.write('\n'.join(lines))
-
-    def _write_tsv_report(self, data: Dict, out_dir: Path):
-        tsv_line = (
-            f"{data['sample']}\t{data.get('original_filename','')}\t{data['type']}\t{data['targets']}\t"
-            f"{data['coverage']:.2f}\t{data['hits']}\t{data['schema']}\t{data['schema_version']}\t"
-            f"{data['params']}\t{data.get('comment','')}\n"
-        )
-        with open(out_dir / "past_report.tsv", 'w') as f:
-            f.write("Sample\tOriginal_File\tType\tTargets\tCoverage\tHits\tSchema\tSchema_Version\tParams\tComment\n")
-            f.write(tsv_line)
-
-    def _write_json_report(self, data: Dict, out_dir: Path):
-        with open(out_dir / "past_report.json", 'w') as f:
-            json.dump({
-                "metadata": {
-                    "sample": data['sample'],
-                    "original_filename": data.get('original_filename', ''),
-                    "analysis_date": datetime.now().isoformat(),
-                    "schema": data['schema'],
-                    "schema_version": data['schema_version'],
-                    "version": "1.0.0",
-                    "tool": "PseudoScope PAST",
-                    "min_pident": self.min_pident,
-                    "min_coverage": self.min_coverage
-                },
-                "result": {
-                    "type": data['type'],
-                    "targets": data['targets'],
-                    "coverage": data['coverage'],
-                    "hits": data['hits'],
-                    "params": data['params'],
-                    "comment": data.get('comment', '')
-                },
-                "details": data.get('details', [])
-            }, f, indent=2)
-
     def _write_html_report(self, data: Dict, out_dir: Path):
+        """Write the single per-sample HTML report."""
         quote = self.get_random_quote()
-        details_rows = ""
+
         if data['details']:
-            for d in data['details']:
-                status_icon = "✅" if d.get('status') else "❌"
-                details_rows += f'''<tr>
-                    <td>{d.get('type','')}</td>
-                    <td>{status_icon}</td>
-                    <td>{d.get('coverage','')}%</td>
-                    <td>{d.get('hits','')}</td>
-                </tr>\n'''
+            details_rows = "".join(
+                f'<tr>'
+                f'<td>{d.get("type", "")}</td>'
+                f'<td>{"✅" if d.get("status") else "❌"}</td>'
+                f'<td>{d.get("coverage", "")}%</td>'
+                f'<td>{d.get("hits", "")}</td>'
+                f'</tr>\n'
+                for d in data['details']
+            )
         else:
-            details_rows = "<tr><td colspan='4' style='text-align:center;'>No detailed data available.</td></tr>"
+            details_rows = (
+                "<tr><td colspan='4' style='text-align:center;'>"
+                "No detailed data available.</td></tr>"
+            )
 
         html = f'''<!DOCTYPE html>
 <html lang="en">
@@ -318,7 +284,7 @@ class PseudoPASTAnalyzer:
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
-            background: linear-gradient(135deg, #2c0b0e 0%, #4a1c20 50%, #6b2b2f 100%);
+            background: linear-gradient(135deg, #2A1408 0%, #5C2E0B 40%, #8B4513 100%);
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #fff;
             padding: 20px;
@@ -326,52 +292,53 @@ class PseudoPASTAnalyzer:
         }}
         .container {{ max-width: 1400px; margin: 0 auto; }}
         .ascii-container {{
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.75);
             padding: 20px;
             border-radius: 15px;
             margin-bottom: 20px;
-            border: 2px solid #dc3545;
+            border: 2px solid rgba(210,180,140,0.4);
             overflow-x: auto;
             text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
         }}
         .ascii-art {{
             font-family: 'Courier New', monospace;
             font-size: 10px;
             line-height: 1.1;
             white-space: pre;
-            color: #dc3545;
-            text-shadow: 0 0 10px rgba(220,53,69,0.5);
+            color: #E8C39E;
+            text-shadow: 0 0 10px rgba(232,195,158,0.4);
             display: inline-block;
             text-align: left;
         }}
         .quote-container {{
-            background: rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.08);
             backdrop-filter: blur(10px);
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 30px;
             text-align: center;
-            border-left: 4px solid #dc3545;
+            border-left: 4px solid #8B4513;
         }}
         .quote-text {{ font-size: 18px; font-style: italic; margin-bottom: 5px; }}
-        .quote-author {{ font-size: 14px; color: #fbbf24; }}
+        .quote-author {{ font-size: 14px; color: #E8C39E; }}
         .card {{
-            background: rgba(255,255,255,0.95);
-            color: #1f2937;
+            background: rgba(255,255,255,0.96);
+            color: #2c2c2c;
             padding: 25px;
             border-radius: 10px;
             margin-bottom: 20px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }}
-        h2 {{ color: #a71d2a; border-bottom: 3px solid #dc3545; padding-bottom: 10px; margin-bottom: 20px; }}
-        h3 {{ color: #a71d2a; margin: 20px 0 10px; }}
+        h2 {{ color: #5C2E0B; border-bottom: 3px solid #8B4513; padding-bottom: 10px; margin-bottom: 20px; }}
+        h3 {{ color: #5C2E0B; margin: 20px 0 10px; }}
         .grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
         }}
         .metric {{
-            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            background: linear-gradient(135deg, #A0522D 0%, #5C2E0B 100%);
             color: white;
             padding: 20px;
             border-radius: 8px;
@@ -382,10 +349,10 @@ class PseudoPASTAnalyzer:
         .type-badge {{
             font-size: 36px;
             font-weight: bold;
-            color: #dc3545;
+            color: #8B4513;
             text-align: center;
             padding: 20px;
-            background: #f8f9fa;
+            background: #fdf6ec;
             border-radius: 10px;
             margin: 15px 0;
         }}
@@ -403,7 +370,7 @@ class PseudoPASTAnalyzer:
             font-size: 14px;
         }}
         th {{
-            background: #dc3545;
+            background: #5C2E0B;
             color: white;
             padding: 10px;
             position: sticky;
@@ -419,16 +386,16 @@ class PseudoPASTAnalyzer:
             text-align: center;
             margin-top: 30px;
             padding: 20px;
-            background: rgba(0,0,0,0.3);
+            background: rgba(0,0,0,0.35);
             border-radius: 10px;
             font-size: 14px;
         }}
-        .footer a {{ color: #dc3545; text-decoration: none; }}
+        .footer a {{ color: #E8C39E; text-decoration: none; }}
         .footer a:hover {{ text-decoration: underline; }}
-        .timestamp {{ color: #fbbf24; }}
+        .timestamp {{ color: #E8C39E; }}
         .collapsible {{
-            background-color: #f8f9fa;
-            color: #a71d2a;
+            background-color: #fdf6ec;
+            color: #5C2E0B;
             cursor: pointer;
             padding: 15px;
             width: 100%;
@@ -440,9 +407,7 @@ class PseudoPASTAnalyzer:
             border-radius: 5px;
             margin: 10px 0;
         }}
-        .active, .collapsible:hover {{
-            background-color: #e9ecef;
-        }}
+        .active, .collapsible:hover {{ background-color: #f5e6d3; }}
         .content {{
             padding: 0 18px;
             display: none;
@@ -460,7 +425,7 @@ class PseudoPASTAnalyzer:
             if (q && a) {{
                 idx = (idx + 1) % quotes.length;
                 q.innerText = `"${{quotes[idx].text}}"`;
-                a.innerText = `— ${{quotes[idx].author}}`;
+                a.innerText = `\\u2014 ${{quotes[idx].author}}`;
             }}
         }}
         setInterval(rotateQuote, 10000);
@@ -502,7 +467,7 @@ class PseudoPASTAnalyzer:
             <div class="metric"><span class="label">Hits</span><div class="value">{data['hits']}</div></div>
         </div>
         <p><strong>Parameters:</strong> {data['params']}</p>
-        <p><strong>Comment:</strong> {data.get('comment','')}</p>
+        <p><strong>Comment:</strong> {data.get('comment', '')}</p>
     </div>
     <button id="detailsBtn" class="collapsible" onclick="toggleDetails()">🔽 Show Detailed Results</button>
     <div id="detailsContent" class="content">
@@ -521,14 +486,23 @@ class PseudoPASTAnalyzer:
         </div>
     </div>
     <div class="footer">
-        <p><strong>PSEUDOSCOPE</strong> — P. aeruginosa PAST Module</p>
-        <p>Author: <a href="mailto:brownbeckley94@gmail.com">Brown Beckley</a> | GitHub: <a href="https://github.com/bbeckley-hub" target="_blank">bbeckley-hub</a></p>
-        <p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
-        <p class="timestamp">Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    </div>
+<p><strong>PSEUDOSCOPE</strong> - PAST O-Serotyping</p>
+<p class="timestamp">Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<div class="authorship">
+<p><strong>Technical Support &amp; Inquiries:</strong></p>
+<p>Maintainer: Brown Beckley</p>
+<p>GitHub: <a href="https://github.com/bbeckley-hub" style="color:#E8C39E;">bbeckley-hub</a></p>
+<p>Email: <a href="mailto:brownbeckley94@gmail.com" style="color:#E8C39E;">brownbeckley94@gmail.com</a></p>
+<p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
+<p style="margin-top:10px;font-size:11px;opacity:0.8;">
+Powered by pasty (Petit III) and PAST (CGE, DTU)
+</p>
+</div>
+</div>
 </div>
 </body>
 </html>'''
+
         with open(out_dir / "past_report.html", 'w', encoding='utf-8') as f:
             f.write(html)
 
@@ -571,21 +545,24 @@ class PseudoPASTAnalyzer:
         print(f"\n✅ Analysis complete. Results in: {out_dir}")
 
     def _create_summary(self, results: List[Dict], out_dir: Path):
-        """Generate summary CSV/JSON/HTML."""
-        summary_rows = []
-        for r in results:
-            summary_rows.append({
+        """Generate batch-level CSV, JSON, and HTML summaries."""
+        summary_rows = [
+            {
                 "Sample": r['sample'],
                 "Type": r['type'],
                 "Targets": r['targets'],
                 "Coverage": f"{r['coverage']:.2f}",
                 "Hits": r['hits'],
-                "Comment": r.get('comment', '')
-            })
+                "Comment": r.get('comment', ''),
+            }
+            for r in results
+        ]
 
         csv_path = out_dir / "past_summary.csv"
         with open(csv_path, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=["Sample", "Type", "Targets", "Coverage", "Hits", "Comment"])
+            writer = csv.DictWriter(
+                f, fieldnames=["Sample", "Type", "Targets", "Coverage", "Hits", "Comment"]
+            )
             writer.writeheader()
             writer.writerows(summary_rows)
         print(f"✅ Summary CSV: {csv_path}")
@@ -599,27 +576,32 @@ class PseudoPASTAnalyzer:
                     "schema_version": self.schema_version,
                     "samples_analyzed": len(results),
                     "min_pident": self.min_pident,
-                    "min_coverage": self.min_coverage
+                    "min_coverage": self.min_coverage,
                 },
-                "results": results
+                "results": results,
             }, f, indent=2)
         print(f"✅ Summary JSON: {json_path}")
 
         self._write_batch_html(results, out_dir)
 
     def _write_batch_html(self, results: List[Dict], out_dir: Path):
+        """Write the batch-level HTML summary across all samples."""
         quote = self.get_random_quote()
-        rows = ''
-        for i, r in enumerate(results, 1):
-            rows += f'''<tr>
-                <td>{i}</td>
-                <td>{r['sample']}</td>
-                <td><strong>{r['type']}</strong></td>
-                <td>{r['targets']}</td>
-                <td>{r['coverage']:.2f}%</td>
-                <td>{r['hits']}</td>
-                <td>{r.get('comment', '')}</td>
-            </tr>\n'''
+        rows = "".join(
+            f'<tr>'
+            f'<td>{i}</td>'
+            f'<td>{r["sample"]}</td>'
+            f'<td><strong>{r["type"]}</strong></td>'
+            f'<td>{r["targets"]}</td>'
+            f'<td>{r["coverage"]:.2f}%</td>'
+            f'<td>{r["hits"]}</td>'
+            f'<td>{r.get("comment", "")}</td>'
+            f'</tr>\n'
+            for i, r in enumerate(results, 1)
+        )
+
+        typed = len([r for r in results if r['type'] != 'UNKNOWN'])
+        unknown = len([r for r in results if r['type'] == 'UNKNOWN'])
 
         html = f'''<!DOCTYPE html>
 <html lang="en">
@@ -630,7 +612,7 @@ class PseudoPASTAnalyzer:
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
-            background: linear-gradient(135deg, #2c0b0e 0%, #4a1c20 50%, #6b2b2f 100%);
+            background: linear-gradient(135deg, #2A1408 0%, #5C2E0B 40%, #8B4513 100%);
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #fff;
             padding: 20px;
@@ -638,35 +620,36 @@ class PseudoPASTAnalyzer:
         }}
         .container {{ max-width: 1600px; margin: 0 auto; }}
         .ascii-container {{
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.75);
             padding: 20px;
             border-radius: 15px;
             margin-bottom: 20px;
-            border: 2px solid #dc3545;
+            border: 2px solid rgba(210,180,140,0.4);
             overflow-x: auto;
             text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
         }}
         .ascii-art {{
             font-family: 'Courier New', monospace;
             font-size: 10px;
             line-height: 1.1;
             white-space: pre;
-            color: #dc3545;
-            text-shadow: 0 0 10px rgba(220,53,69,0.5);
+            color: #E8C39E;
+            text-shadow: 0 0 10px rgba(232,195,158,0.4);
             display: inline-block;
             text-align: left;
         }}
         .quote-container {{
-            background: rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.08);
             backdrop-filter: blur(10px);
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 30px;
             text-align: center;
-            border-left: 4px solid #dc3545;
+            border-left: 4px solid #8B4513;
         }}
         .quote-text {{ font-size: 18px; font-style: italic; margin-bottom: 5px; }}
-        .quote-author {{ font-size: 14px; color: #fbbf24; }}
+        .quote-author {{ font-size: 14px; color: #E8C39E; }}
         .stats {{
             display: flex;
             justify-content: space-around;
@@ -675,7 +658,7 @@ class PseudoPASTAnalyzer:
             margin-bottom: 20px;
         }}
         .stat-card {{
-            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            background: linear-gradient(135deg, #A0522D 0%, #5C2E0B 100%);
             padding: 20px;
             border-radius: 10px;
             text-align: center;
@@ -698,14 +681,14 @@ class PseudoPASTAnalyzer:
         }}
         button {{
             padding: 10px 20px;
-            background: #dc3545;
+            background: #8B4513;
             color: white;
             border: none;
             border-radius: 5px;
             cursor: pointer;
             font-size: 16px;
         }}
-        button:hover {{ background: #c82333; }}
+        button:hover {{ background: #A0522D; }}
         .table-container {{
             max-height: 500px;
             overflow-y: auto;
@@ -716,11 +699,11 @@ class PseudoPASTAnalyzer:
             width: 100%;
             border-collapse: collapse;
             background: white;
-            color: #1f2937;
+            color: #2c2c2c;
             font-size: 14px;
         }}
         th {{
-            background: #dc3545;
+            background: #5C2E0B;
             color: white;
             padding: 12px;
             position: sticky;
@@ -737,12 +720,12 @@ class PseudoPASTAnalyzer:
             text-align: center;
             margin-top: 30px;
             padding: 20px;
-            background: rgba(0,0,0,0.3);
+            background: rgba(0,0,0,0.35);
             border-radius: 10px;
         }}
-        .footer a {{ color: #dc3545; text-decoration: none; }}
+        .footer a {{ color: #E8C39E; text-decoration: none; }}
         .footer a:hover {{ text-decoration: underline; }}
-        .timestamp {{ color: #fbbf24; }}
+        .timestamp {{ color: #E8C39E; }}
     </style>
     <script>
         function filterTable() {{
@@ -762,7 +745,7 @@ class PseudoPASTAnalyzer:
             if (q && a) {{
                 idx = (idx + 1) % quotes.length;
                 q.innerText = `"${{quotes[idx].text}}"`;
-                a.innerText = `— ${{quotes[idx].author}}`;
+                a.innerText = `\\u2014 ${{quotes[idx].author}}`;
             }}
         }}
         setInterval(rotateQuote, 10000);
@@ -777,8 +760,8 @@ class PseudoPASTAnalyzer:
     </div>
     <div class="stats">
         <div class="stat-card"><div class="value">{len(results)}</div><div class="label">Samples</div></div>
-        <div class="stat-card"><div class="value">{len([r for r in results if r['type'] != 'UNKNOWN'])}</div><div class="label">Typed</div></div>
-        <div class="stat-card"><div class="value">{len([r for r in results if r['type'] == 'UNKNOWN'])}</div><div class="label">Unknown</div></div>
+        <div class="stat-card"><div class="value">{typed}</div><div class="label">Typed</div></div>
+        <div class="stat-card"><div class="value">{unknown}</div><div class="label">Unknown</div></div>
     </div>
     <div class="controls">
         <input type="text" id="searchInput" placeholder="🔍 Search by sample, type, targets..." onkeyup="filterTable()">
@@ -795,14 +778,23 @@ class PseudoPASTAnalyzer:
         </table>
     </div>
     <div class="footer">
-        <p><strong>PSEUDOSCOPE</strong> — P. aeruginosa PAST Module</p>
-        <p>Author: <a href="mailto:brownbeckley94@gmail.com">Brown Beckley</a> | GitHub: <a href="https://github.com/bbeckley-hub" target="_blank">bbeckley-hub</a></p>
-        <p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
-        <p class="timestamp">Summary generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    </div>
+<p><strong>PSEUDOSCOPE</strong> - PAST O-Serotyping</p>
+<p class="timestamp">Summary generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<div class="authorship">
+<p><strong>Technical Support &amp; Inquiries:</strong></p>
+<p>Maintainer: Brown Beckley</p>
+<p>GitHub: <a href="https://github.com/bbeckley-hub" style="color:#E8C39E;">bbeckley-hub</a></p>
+<p>Email: <a href="mailto:brownbeckley94@gmail.com" style="color:#E8C39E;">brownbeckley94@gmail.com</a></p>
+<p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
+<p style="margin-top:10px;font-size:11px;opacity:0.8;">
+Powered by pasty (Petit III) and PAST (CGE, DTU)
+</p>
+</div>
+</div>
 </div>
 </body>
 </html>'''
+
         with open(out_dir / "past_summary.html", 'w', encoding='utf-8') as f:
             f.write(html)
         print(f"✅ Summary HTML: {out_dir / 'past_summary.html'}")
@@ -814,24 +806,29 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Single file
   python p_past.py -i sample.fasta -o results/
-
-  # Multiple files with glob pattern 
   python p_past.py -i "*.fna" -o results/
-
-  # Use multiple threads
   python p_past.py -i "genomes/*.fasta" -o results/ --cpus 4
-
-  # Custom thresholds
   python p_past.py -i "*.fna" -o results/ --min-pident 90 --min-coverage 85
+
+Per-sample output (1 file each):
+  - past_report.html
+
+Batch-level outputs:
+  - past_summary.csv
+  - past_summary.json
+  - past_summary.html
         """
     )
-    parser.add_argument('-i', '--input', required=True, help='Input FASTA file, directory, or glob pattern')
+    parser.add_argument('-i', '--input', required=True,
+                        help='Input FASTA file, directory, or glob pattern')
     parser.add_argument('-o', '--output', required=True, help='Output directory')
-    parser.add_argument('--cpus', type=int, default=1, help='Number of CPU cores for parallel processing (default: 1)')
-    parser.add_argument('--min-pident', type=int, default=95, help='Minimum percent identity (default: 95)')
-    parser.add_argument('--min-coverage', type=int, default=95, help='Minimum percent coverage (default: 95)')
+    parser.add_argument('--cpus', type=int, default=1,
+                        help='Number of CPU cores for parallel processing (default: 1)')
+    parser.add_argument('--min-pident', type=int, default=95,
+                        help='Minimum percent identity (default: 95)')
+    parser.add_argument('--min-coverage', type=int, default=95,
+                        help='Minimum percent coverage (default: 95)')
     args = parser.parse_args()
 
     try:

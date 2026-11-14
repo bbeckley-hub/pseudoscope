@@ -3,7 +3,16 @@
 PseudoScope ABRicate Module - Comprehensive Gene Tracking for Pseudomonas aeruginosa
 Author: Brown Beckley <brownbeckley94@gmail.com>
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2026-01-28 (Updated: 2026-07-25)
+Date: (Updated: 2026-10-02)
+
+REFACTORED (2026-11-12) to match  consolidation pattern:
+  - Per-sample output reduced to 2 files:
+      {genome}_comprehensive_abricate_report.html
+      abricate_raw.tsv (all databases merged)
+  - Batch-level JSON reduced to ONE file:
+      pseudo_abricate_master_summary.json
+  - All raw per-database .txt files now live inside a tempfile.TemporaryDirectory
+    and are automatically deleted once the merged TSV has been written.
 """
 
 import subprocess
@@ -11,6 +20,8 @@ import sys
 import os
 import glob
 import logging
+import tempfile
+import random
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional
@@ -22,141 +33,113 @@ import json
 
 from collections import defaultdict, Counter
 
+# pandas is only needed for the optional Excel export
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
+
 class PseudoAbricateExecutor:
     """ABRicate executor for Pseudomonas aeruginosa with comprehensive HTML reporting - MAXIMUM SPEED"""
-    
-    def __init__(self, cpus: Optional[int] = None, minid: int = 80, mincov: int = 80):
-        """
-        Initialize the executor.
 
-        Args:
-            cpus: Number of CPU cores (auto-detect if None).
-            minid: Minimum percent identity (default 80).
-            mincov: Minimum percent coverage (default 80).
-        """
+    def __init__(self, cpus: Optional[int] = None, minid: int = 80, mincov: int = 80):
         self.minid = minid
         self.mincov = mincov
-        # Setup logging FIRST
         self.logger = self._setup_logging()
-        
-        # Initialize available_ram before calculating cpus
         self.available_ram = self._get_available_ram()
-        
-        # Then calculate resources - MAXIMUM SPEED MODE
         self.cpus = self._calculate_optimal_cpus(cpus)
-        
-        # P. aeruginosa specific databases
+
         self.required_databases = [
-            'ncbi', 'card', 'resfinder', 'vfdb', 'argannot', 
+            'ncbi', 'card', 'resfinder', 'vfdb', 'argannot',
             'plasmidfinder', 'megares', 'ecoh', 'bacmet2', 'ecoli_vf'
         ]
-        
-        # CRITICAL CARBAPENEMASE genes for P. aeruginosa (🔴 HIGHEST PRIORITY)
+
+        # ─── Gene categories  ─────────────────────────────────
         self.critical_carbapenemases = {
-            # OXA-type (includes OXA-2, OXA-10, OXA-14, OXA-17, OXA-19, OXA-28, OXA-35, OXA-45, OXA-50, OXA-198)
-            'blaOXA-2', 'blaOXA-10', 'blaOXA-14', 'blaOXA-17', 'blaOXA-19', 'blaOXA-28', 'blaOXA-35', 'blaOXA-45', 'blaOXA-50', 'blaOXA-198',
-            'OXA-2', 'OXA-10', 'OXA-14', 'OXA-17', 'OXA-19', 'OXA-28', 'OXA-35', 'OXA-45', 'OXA-50', 'OXA-198',
-            # IMP, VIM, NDM, KPC, GES, SPM, AIM, DIM, etc.
+            'blaOXA-2', 'blaOXA-10', 'blaOXA-14', 'blaOXA-17', 'blaOXA-19', 'blaOXA-28',
+            'blaOXA-35', 'blaOXA-45', 'blaOXA-50', 'blaOXA-198',
+            'OXA-2', 'OXA-10', 'OXA-14', 'OXA-17', 'OXA-19', 'OXA-28', 'OXA-35',
+            'OXA-45', 'OXA-50', 'OXA-198',
             'blaIMP', 'blaVIM', 'blaNDM', 'blaKPC', 'blaGES', 'blaSPM', 'blaAIM', 'blaDIM',
             'IMP', 'VIM', 'NDM', 'KPC', 'GES', 'SPM', 'AIM', 'DIM'
         }
-        
-        # CRITICAL ESBL genes for P. aeruginosa (🔴 CRITICAL)
+
         self.critical_esbls = {
             'blaPER', 'blaVEB', 'blaBEL', 'blaGES', 'blaTEM', 'blaSHV', 'blaCTX-M',
             'PER', 'VEB', 'BEL', 'GES', 'TEM', 'SHV', 'CTX-M'
         }
-        
-        # CRITICAL Colistin resistance genes (🔴 CRITICAL)
+
         self.critical_colistin = {
-            'mcr-1', 'mcr-2', 'mcr-3', 'mcr-4', 'mcr-5', 'mcr-6', 'mcr-7', 'mcr-8', 'mcr-9', 'mcr-10',
-            'pmrA', 'pmrB', 'phoP', 'phoQ', 'mgrB', 'lpxA', 'lpxC', 'lpxD', 'arnT', 'eptA', 'eptB', 'basS', 'basR'
+            'mcr-1', 'mcr-2', 'mcr-3', 'mcr-4', 'mcr-5', 'mcr-6', 'mcr-7', 'mcr-8',
+            'mcr-9', 'mcr-10', 'pmrA', 'pmrB', 'phoP', 'phoQ', 'mgrB', 'lpxA', 'lpxC',
+            'lpxD', 'arnT', 'eptA', 'eptB', 'basS', 'basR'
         }
-        
-        # CRITICAL Aminoglycoside resistance (16S rRNA methyltransferases and modifying enzymes) (🔴 CRITICAL)
+
         self.critical_aminoglycoside = {
             'armA', 'rmtA', 'rmtB', 'rmtC', 'rmtD', 'rmtE', 'rmtF', 'rmtG', 'rmtH', 'npmA',
             'aac(3)', 'aac(6\')', 'ant(2\")', 'ant(4\')', 'aph(3\')', 'aph(6)',
             'aacC1', 'aacC2', 'aacC4', 'aacA4', 'aacA7', 'aadA1', 'aadA2', 'aadA5', 'aadA7',
             'strA', 'strB', 'aphA1', 'aphA2', 'aphA3', 'aphA6', 'aac3', 'aac6', 'aadA', 'aadB'
         }
-        
-        # HIGH RISK resistance genes for P. aeruginosa (🟡 HIGH RISK)
+
         self.high_risk_resistance = {
-            # Efflux pumps (critical for P. aeruginosa)
             'mexA', 'mexB', 'mexC', 'mexD', 'mexE', 'mexF', 'mexX', 'mexY',
-            'oprM', 'oprN', 'oprJ',
-            'adeA', 'adeB', 'adeC',  # some Acinetobacter efflux but included
-            # Tetracycline resistance
-            'tetA', 'tetB', 'tetC', 'tetD', 'tetE', 'tetG', 'tetH', 'tetK', 'tetL', 'tetM', 'tetO', 'tetQ', 'tetS', 'tetX',
-            # Sulfonamide resistance
+            'oprM', 'oprN', 'oprJ', 'adeA', 'adeB', 'adeC',
+            'tetA', 'tetB', 'tetC', 'tetD', 'tetE', 'tetG', 'tetH', 'tetK', 'tetL',
+            'tetM', 'tetO', 'tetQ', 'tetS', 'tetX',
             'sul1', 'sul2', 'sul3', 'sul4',
-            # Trimethoprim resistance
-            'dfrA1', 'dfrA5', 'dfrA7', 'dfrA8', 'dfrA12', 'dfrA14', 'dfrA17', 'dfrA19', 'dfrA20', 'dfrA21',
-            'dfrB1', 'dfrB2', 'dfrB3', 'dfrB4', 'dfrB5', 'dfrB6', 'dfrB7',
-            # Chloramphenicol resistance
+            'dfrA1', 'dfrA5', 'dfrA7', 'dfrA8', 'dfrA12', 'dfrA14', 'dfrA17', 'dfrA19',
+            'dfrA20', 'dfrA21', 'dfrB1', 'dfrB2', 'dfrB3', 'dfrB4', 'dfrB5', 'dfrB6', 'dfrB7',
             'catA1', 'catA2', 'catB2', 'catB3', 'catB8', 'catI', 'catII', 'catIII',
             'cmlA', 'cmlA1', 'cmlA5', 'cmlA6', 'cmlA7', 'floR',
-            # Macrolide resistance
             'ermA', 'ermB', 'ermC', 'ermF', 'ermG', 'ermX', 'ermY',
             'mphA', 'mphB', 'mphC', 'mphD', 'mphE', 'msrA', 'msrB', 'msrC', 'msrD',
-            # Quinolone resistance
-            'qnrA1', 'qnrB1', 'qnrB2', 'qnrB4', 'qnrB6', 'qnrB10', 'qnrB19', 'qnrS1', 'qnrS2', 'qnrVC1', 'qnrVC4',
-            'aac(6\')-Ib-cr', 'qepA', 'qepA1', 'qepA2', 'qepA3', 'qepA4',
-            # Fosfomycin resistance
+            'qnrA1', 'qnrB1', 'qnrB2', 'qnrB4', 'qnrB6', 'qnrB10', 'qnrB19', 'qnrS1',
+            'qnrS2', 'qnrVC1', 'qnrVC4', 'aac(6\')-Ib-cr',
+            'qepA', 'qepA1', 'qepA2', 'qepA3', 'qepA4',
             'fosA', 'fosB', 'fosC', 'fosX',
-            # Rifampicin resistance
             'arr-2', 'arr-3', 'arr-4', 'arr-5', 'arr-6', 'arr-7',
         }
-        
-        # VIRULENCE FACTORS for P. aeruginosa (🟢 VIRULENCE)
+
         self.virulence_genes = {
-            # Type III secretion system effectors
             'exoU', 'exoS', 'exoT', 'exoY',
-            # Type III secretion apparatus
             'pscC', 'pscD', 'pscE', 'pscF', 'pscG', 'pscH', 'pscI', 'pscJ', 'pscK', 'pscL',
             'pcrV', 'pcrG', 'pcrH', 'pcrD', 'pcrC', 'pcrB', 'pcrR',
             'exsA', 'exsB', 'exsC', 'exsD',
-            # Alginate biosynthesis (biofilm)
             'algD', 'algU', 'alg8', 'alg44', 'algK', 'algE', 'mucA', 'mucB', 'mucC', 'mucD',
-            # Elastase and proteases
             'lasA', 'lasB', 'lasI', 'lasR', 'rhlA', 'rhlB', 'rhlI', 'rhlR',
             'aprA', 'aprB', 'aprC', 'aprD', 'aprE', 'aprF',
-            # Phospholipase
             'plcH', 'plcN', 'plcB',
-            # Pyocyanin biosynthesis
             'phzA', 'phzB', 'phzC', 'phzD', 'phzE', 'phzF', 'phzG', 'phzM', 'phzS',
-            # Pyoverdine siderophore
-            'pvdA', 'pvdD', 'pvdE', 'pvdF', 'pvdG', 'pvdH', 'pvdI', 'pvdJ', 'pvdL', 'pvdN', 'pvdO', 'pvdP', 'pvdQ',
-            'fpvA', 'fpvB', 'fpvC', 'fpvD', 'fpvE', 'fpvF', 'fpvG', 'fpvH', 'fpvI', 'fpvJ', 'fpvK',
-            # Flagella
-            'fliC', 'fliD', 'fliE', 'fliF', 'fliG', 'fliH', 'fliI', 'fliJ', 'fliK', 'fliL', 'fliM', 'fliN', 'fliO', 'fliP', 'fliQ', 'fliR',
+            'pvdA', 'pvdD', 'pvdE', 'pvdF', 'pvdG', 'pvdH', 'pvdI', 'pvdJ', 'pvdL',
+            'pvdN', 'pvdO', 'pvdP', 'pvdQ',
+            'fpvA', 'fpvB', 'fpvC', 'fpvD', 'fpvE', 'fpvF', 'fpvG', 'fpvH', 'fpvI',
+            'fpvJ', 'fpvK',
+            'fliC', 'fliD', 'fliE', 'fliF', 'fliG', 'fliH', 'fliI', 'fliJ', 'fliK',
+            'fliL', 'fliM', 'fliN', 'fliO', 'fliP', 'fliQ', 'fliR',
             'fleN', 'fleQ', 'fleR',
-            # Type IV pili
-            'pilA', 'pilB', 'pilC', 'pilD', 'pilE', 'pilF', 'pilG', 'pilH', 'pilI', 'pilJ', 'pilK', 'pilL', 'pilM', 'pilN', 'pilO', 'pilP', 'pilQ', 'pilR', 'pilS', 'pilT', 'pilU',
-            # Exopolysaccharide
-            'pslA', 'pslB', 'pslC', 'pslD', 'pslE', 'pslF', 'pslG', 'pslH', 'pslI', 'pslJ', 'pslK', 'pslL', 'pslM', 'pslN', 'pslO', 'pslP',
+            'pilA', 'pilB', 'pilC', 'pilD', 'pilE', 'pilF', 'pilG', 'pilH', 'pilI',
+            'pilJ', 'pilK', 'pilL', 'pilM', 'pilN', 'pilO', 'pilP', 'pilQ', 'pilR',
+            'pilS', 'pilT', 'pilU',
+            'pslA', 'pslB', 'pslC', 'pslD', 'pslE', 'pslF', 'pslG', 'pslH', 'pslI',
+            'pslJ', 'pslK', 'pslL', 'pslM', 'pslN', 'pslO', 'pslP',
             'pelA', 'pelB', 'pelC', 'pelD', 'pelE', 'pelF', 'pelG',
-            # Lipopolysaccharide biosynthesis
             'lpxA', 'lpxC', 'lpxD', 'lpxL', 'lpxO', 'lpxP',
-            # Quorum sensing
-            'lasI', 'lasR', 'rhlI', 'rhlR', 'pqsA', 'pqsB', 'pqsC', 'pqsD', 'pqsE', 'pqsH', 'mvfR'
+            'lasI', 'lasR', 'rhlI', 'rhlR', 'pqsA', 'pqsB', 'pqsC', 'pqsD', 'pqsE',
+            'pqsH', 'mvfR'
         }
-        
-        # Combined risk categories for better reporting
+
         self.critical_resistance_genes = self.critical_carbapenemases.union(
             self.critical_esbls
         ).union(self.critical_colistin).union(self.critical_aminoglycoside)
-        
-        self.critical_virulence_genes = {
-            'exoU', 'exoS', 'exoT', 'exoY'
-        }
-        
-        # Science quotes
+
+        self.critical_virulence_genes = {'exoU', 'exoS', 'exoT', 'exoY'}
+
         self.science_quotes = [
             "Pseudomonas aeruginosa: the master of adaptation. - Unknown",
             "The important thing is not to stop questioning. Curiosity has its own reason for existing. - Albert Einstein",
-            "Science is not only a disciple of reason but also one of romance and passion. - Stephen Hawking", 
+            "Science is not only a disciple of reason but also one of romance and passion. - Stephen Hawking",
             "Somewhere, something incredible is waiting to be known. - Carl Sagan",
             "In science, there are no shortcuts to truth. - Karl Popper",
             "Science knows no country, because knowledge belongs to humanity. - Louis Pasteur",
@@ -164,21 +147,19 @@ class PseudoAbricateExecutor:
             "Nothing in life is to be feared, it is only to be understood. - Marie Curie",
             "Research is what I'm doing when I don't know what I'm doing. - Wernher von Braun"
         ]
-        
-        # ASCII Art for PseudoScope 
+
         self.ascii_art = r"""
-    
 ██████╗ ███████╗███████╗██╗   ██╗██████╗  ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗
 ██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██╔═══██╗██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
-██████╔╝███████╗█████╗  ██║   ██║██║  ██║██║   ██║███████╗██║     ██║   ██║██████╔╝█████╗  
-██╔═══╝ ╚════██║██╔══╝  ██║   ██║██║  ██║██║   ██║╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝  
+██████╔╝███████╗█████╗  ██║   ██║██║  ██║██║   ██║███████╗██║     ██║   ██║██████╔╝█████╗
+██╔═══╝ ╚════██║██╔══╝  ██║   ██║██║  ██║██║   ██║╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝
 ██║     ███████║███████╗╚██████╔╝██████╔╝╚██████╔╝███████║╚██████╗╚██████╔╝██║     ███████╗
 ╚═╝     ╚══════╝╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝
 """
-        
+
         self.metadata = {
             "tool_name": "PseudoScope ABRicate for Pseudomonas aeruginosa",
-            "version": "1.2.0", 
+            "version": "1.3.0",
             "authors": ["Brown Beckley"],
             "email": "brownbeckley94@gmail.com",
             "github": "https://github.com/bbeckley-hub",
@@ -187,239 +168,182 @@ class PseudoAbricateExecutor:
             "min_identity": self.minid,
             "min_coverage": self.mincov
         }
-    
+
+    # ─────────────────────────── setup helpers ───────────────────────────
     def _setup_logging(self):
-        """Setup logging - must be called first in __init__"""
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
         return logging.getLogger(__name__)
-    
-    def _get_available_ram(self) -> int:
-        """Get available RAM in GB"""
+
+    def _get_available_ram(self) -> float:
         try:
-            ram_gb = psutil.virtual_memory().available / (1024 ** 3)
-            return ram_gb
+            return psutil.virtual_memory().available / (1024 ** 3)
         except Exception as e:
             self.logger.warning(f"Could not detect RAM: {e}")
-            return 8  # Assume 8GB as fallback
-    
+            return 8
+
     def _calculate_optimal_cpus(self, user_cpus: int = None) -> int:
-        """Calculate optimal number of CPU cores for MAXIMUM SPEED"""
         if user_cpus is not None:
             self._log_resource_info(user_cpus)
             return user_cpus
-            
         try:
-            # Get total PHYSICAL CPU cores (not logical threads)
             total_physical_cores = psutil.cpu_count(logical=False) or os.cpu_count() or 2
-            
-            # MAXIMUM SPEED RULES - AGGRESSIVE CPU USAGE
             if total_physical_cores <= 4:
-                optimal_cpus = total_physical_cores  # Use ALL cores on small systems
+                optimal_cpus = total_physical_cores
             elif total_physical_cores <= 8:
-                optimal_cpus = total_physical_cores - 1  # Use 7/8, 6/7, etc.
+                optimal_cpus = total_physical_cores - 1
             elif total_physical_cores <= 16:
-                optimal_cpus = max(8, total_physical_cores - 1)  # Use 15/16, 14/15, etc.
+                optimal_cpus = max(8, total_physical_cores - 1)
             elif total_physical_cores <= 32:
-                optimal_cpus = max(16, total_physical_cores - 2)  # Use 30/32, 29/31, etc.
+                optimal_cpus = max(16, total_physical_cores - 2)
             else:
-                optimal_cpus = min(32, int(total_physical_cores * 0.95))  # Use 95% on huge systems
-            
-            # Ensure at least 1 CPU and not more than available cores
+                optimal_cpus = min(32, int(total_physical_cores * 0.95))
             optimal_cpus = max(1, min(optimal_cpus, total_physical_cores))
-            
             self._log_resource_info(optimal_cpus, total_physical_cores)
             return optimal_cpus
-            
         except Exception as e:
-            # Fallback to using all available cores for maximum speed
             self.logger.warning(f"Could not detect CPU cores, using maximum available: {e}")
             return os.cpu_count() or 4
-    
+
     def _log_resource_info(self, cpus: int, total_cores: int = None):
-        """Log resource allocation information"""
         self.logger.info(f"Available RAM: {self.available_ram:.1f} GB")
-        
         if total_cores:
             self.logger.info(f"System CPU cores: {total_cores}")
             utilization = (cpus / total_cores) * 100
             self.logger.info(f"Using CPU cores: {cpus} ({utilization:.1f}% of available cores)")
         else:
             self.logger.info(f"Using user-specified CPU cores: {cpus}")
-        
-        # Performance recommendations - MAXIMUM SPEED FOCUS
         if cpus == 1:
-            self.logger.info("💡 Performance: Single-core (max speed for 1-core systems)")
+            self.logger.info("Performance: single-core")
         elif cpus <= 4:
-            self.logger.info("💡 Performance: Multi-core (max speed for small systems)")
+            self.logger.info("Performance: multi-core (small system)")
         elif cpus <= 8:
-            self.logger.info("💡 Performance: High-speed mode")
+            self.logger.info("Performance: high-speed mode")
         else:
-            self.logger.info("💡 Performance: MAXIMUM SPEED MODE 🚀")
+            self.logger.info("Performance: MAXIMUM SPEED MODE")
 
     def check_abricate_installed(self) -> bool:
-        """Check if ABRicate is installed and meets version requirements"""
         try:
-            result = subprocess.run(['abricate', '--version'], 
-                                  capture_output=True, text=True, check=True)
+            result = subprocess.run(['abricate', '--version'],
+                                    capture_output=True, text=True, check=True)
             version_line = result.stdout.strip()
             self.logger.info("ABRicate version: %s", version_line)
-            
             version_match = re.search(r'(\d+\.\d+\.\d+)', version_line)
             if version_match:
                 version_str = version_match.group(1)
-                if version_str >= "1.0.1":
-                    self.logger.info("✓ ABRicate version meets requirement (>=1.2.0)")
+                if version_str >= "1.2.0":
+                    self.logger.info("ABRicate version meets requirement (>=1.2.0)")
                     return True
-                else:
-                    self.logger.error("ABRicate version too old: %s. Required >=1.2.0", version_str)
-                    return False
-            self.logger.info("✓ ABRicate installed (version check skipped)")
+                self.logger.error("ABRicate version too old: %s. Required >=1.2.0", version_str)
+                return False
             return True
-            
         except (subprocess.CalledProcessError, FileNotFoundError):
-            self.logger.error("ABRicate not found. Please install with: conda install -c bioconda abricate")
+            self.logger.error(
+                "ABRicate not found. Install with: conda install -c bioconda abricate"
+            )
             return False
-    
+
     def setup_abricate_databases(self):
-        """Setup ABRicate databases if they don't exist"""
         self.logger.info("Setting up ABRicate databases for P. aeruginosa analysis...")
-        
         available_dbs = []
         missing_dbs = []
-        
         try:
-            # Check which databases exist
-            check_result = subprocess.run(['abricate', '--list'], 
-                                        capture_output=True, text=True, check=True)
-            
+            check_result = subprocess.run(['abricate', '--list'],
+                                          capture_output=True, text=True, check=True)
             for db in self.required_databases:
                 if db in check_result.stdout:
-                    self.logger.info("✓ Database available: %s", db)
+                    self.logger.info("Database available: %s", db)
                     available_dbs.append(db)
                 else:
                     self.logger.warning("Database not available: %s", db)
                     missing_dbs.append(db)
-            
-            # Setup missing databases
             for db in missing_dbs:
                 self.logger.info("Attempting to setup database: %s", db)
                 try:
-                    result = subprocess.run(
-                        ['abricate', '--setupdb', '--db', db],
-                        capture_output=True, text=True, check=True
-                    )
-                    self.logger.info("✓ Database setup completed: %s", db)
+                    subprocess.run(['abricate', '--setupdb', '--db', db],
+                                   capture_output=True, text=True, check=True)
+                    self.logger.info("Database setup completed: %s", db)
                     available_dbs.append(db)
                 except subprocess.CalledProcessError as e:
                     self.logger.error("Failed to setup database %s: %s", db, e.stderr)
-            
-            # Update required databases to only include available ones
             self.required_databases = available_dbs
             self.logger.info("Using databases: %s", ", ".join(self.required_databases))
-            
         except subprocess.CalledProcessError as e:
             self.logger.error("Error checking ABRicate databases: %s", e.stderr)
         except Exception as e:
             self.logger.error("Unexpected error setting up databases: %s", e)
-    
-    def run_abricate_single_db(self, genome_file: str, database: str, output_dir: str) -> Dict[str, Any]:
-        """Run ABRicate on a single genome with specific database"""
+
+    # ─────────────────────── abricate per-db runner ──────────────────────
+    def run_abricate_single_db(self, genome_file: str, database: str,
+                               temp_dir: str) -> Dict[str, Any]:
+        """Run ABRicate for one genome against one database. Writes into temp_dir only."""
         genome_name = Path(genome_file).stem
-        output_file = os.path.join(output_dir, f"abricate_{database}.txt")
-        
+        raw_file = os.path.join(temp_dir, f"abricate_{database}.txt")
         cmd = [
-            'abricate', 
-            genome_file, 
-            '--db', database,
-            '--minid', str(self.minid),
-            '--mincov', str(self.mincov)
+            'abricate', genome_file, '--db', database,
+            '--minid', str(self.minid), '--mincov', str(self.mincov),
         ]
-        
-        self.logger.info("Running ABRicate: %s --db %s (minid=%s, mincov=%s)", 
-                        genome_name, database, self.minid, self.mincov)
-        
+        self.logger.info("Running ABRicate: %s --db %s (minid=%d, mincov=%d)",
+                         genome_name, database, self.minid, self.mincov)
         try:
-            with open(output_file, 'w') as outfile:
-                result = subprocess.run(cmd, stdout=outfile, stderr=subprocess.PIPE, text=True, check=True)
-            
-            # Parse results for reporting
-            hits = self._parse_abricate_output(output_file)
-            
-            # Create individual database HTML report
-            self._create_database_html_report(genome_name, database, hits, output_dir)
-            
+            with open(raw_file, 'w') as outfile:
+                subprocess.run(cmd, stdout=outfile, stderr=subprocess.PIPE,
+                               text=True, check=True)
+            hits = self._parse_abricate_output(raw_file)
+            with open(raw_file, 'r') as f:
+                raw_content = f.read()
             return {
                 'database': database,
                 'genome': genome_name,
-                'output_file': output_file,
                 'hits': hits,
                 'hit_count': len(hits),
-                'status': 'success'
+                'raw_content': raw_content,
+                'status': 'success',
             }
-            
         except subprocess.CalledProcessError as e:
-            self.logger.error("ABRicate failed for %s on %s: %s", database, genome_name, e.stderr)
+            self.logger.error("ABRicate failed for %s on %s: %s",
+                              database, genome_name, e.stderr)
             return {
                 'database': database,
                 'genome': genome_name,
-                'output_file': output_file,
                 'hits': [],
                 'hit_count': 0,
-                'status': 'failed'
+                'raw_content': '',
+                'status': 'failed',
             }
-    
+
     def _parse_abricate_output(self, abricate_file: str) -> List[Dict]:
-        """Parse ABRicate output file - ROBUST VERSION that handles tabs in fields"""
         hits = []
         try:
             with open(abricate_file, 'r') as f:
                 lines = f.readlines()
-                
             if not lines:
                 return hits
-                
-            # Find header line
             headers = []
             data_lines = []
-            
             for line in lines:
                 if line.startswith('#FILE') and not headers:
-                    # This is the header line
                     headers = line.strip().replace('#', '').split('\t')
                 elif line.strip() and not line.startswith('#'):
                     data_lines.append(line.strip())
-            
             if not headers:
                 self.logger.warning("No headers found in %s", abricate_file)
                 return hits
-            
-            # Expected column count based on standard ABRicate output
             expected_columns = len(headers)
-                
-            # Parse data lines with robust tab handling
             for line_num, line in enumerate(data_lines, 1):
-                # Split by tab but be careful about fields that contain tabs
                 parts = line.split('\t')
-                
-                # Handle cases where there are more parts than headers due to tabs in fields
                 if len(parts) > expected_columns:
-                    # Combine extra fields into the last column (usually PRODUCT)
-                    combined_parts = parts[:expected_columns-1]  # Take all but the last expected column
-                    combined_parts.append('\t'.join(parts[expected_columns-1:]))  # Combine the rest into PRODUCT
+                    combined_parts = parts[:expected_columns - 1]
+                    combined_parts.append('\t'.join(parts[expected_columns - 1:]))
                     parts = combined_parts
                 elif len(parts) < expected_columns:
-                    # Pad with empty strings if fewer columns
                     parts.extend([''] * (expected_columns - len(parts)))
-                
                 if len(parts) == expected_columns:
                     hit = {}
                     for i, header in enumerate(headers):
                         hit[header] = parts[i] if i < len(parts) else ''
-                    
-                    # Map to consistent field names
                     processed_hit = {
                         'file': hit.get('FILE', ''),
                         'sequence': hit.get('SEQUENCE', ''),
@@ -435,292 +359,44 @@ class PseudoAbricateExecutor:
                         'database': hit.get('DATABASE', ''),
                         'accession': hit.get('ACCESSION', ''),
                         'product': hit.get('PRODUCT', ''),
-                        'resistance': hit.get('RESISTANCE', '')
+                        'resistance': hit.get('RESISTANCE', ''),
                     }
                     hits.append(processed_hit)
                 else:
-                    self.logger.warning("Line %d has %d parts, expected %d: %s", 
-                                      line_num, len(parts), expected_columns, line[:10000] + "...")
-                    
+                    self.logger.warning(
+                        "Line %d has %d parts, expected %d: %s",
+                        line_num, len(parts), expected_columns, line[:100] + "..."
+                    )
         except Exception as e:
             self.logger.error("Error parsing %s: %s", abricate_file, e)
-            
         self.logger.info("Parsed %d hits from %s", len(hits), abricate_file)
         return hits
-    
-    def _create_database_html_report(self, genome_name: str, database: str, hits: List[Dict], output_dir: str):
-        """Create individual HTML report for each database with PseudoScope red/white styling"""
-        
-        # JavaScript for rotating quotes
-        quotes_js = f"""
-        <script>
-            let quotes = {json.dumps(self.science_quotes)};
-            let currentQuote = 0;
-            
-            function rotateQuote() {{
-                document.getElementById('science-quote').innerHTML = quotes[currentQuote];
-                currentQuote = (currentQuote + 1) % quotes.length;
-            }}
-            
-            // Rotate every 10 seconds
-            setInterval(rotateQuote, 10000);
-            
-            // Initial display
-            document.addEventListener('DOMContentLoaded', function() {{
-                rotateQuote();
-            }});
-        </script>
-        """
-        
-        html_content = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>PseudoScope ABRicate - {database.upper()} Database</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        
-        body {{
-            background: linear-gradient(135deg, #2c0b0e 0%, #4a1c20 50%, #6b2b2f 100%);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #ffffff;
-            padding: 20px;
-            min-height: 100vh;
-        }}
-        
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-        }}
-        
-        .header {{
-            text-align: center;
-            margin-bottom: 30px;
-        }}
-        
-        .ascii-container {{
-            background: rgba(0, 0, 0, 0.7);
-            padding: 20px;
-            border-radius: 15px;
-            margin-bottom: 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-            border: 2px solid #dc3545;
-        }}
-        
-        .ascii-art {{
-            font-family: 'Courier New', monospace;
-            font-size: 10px;
-            line-height: 1.1;
-            white-space: pre;
-            color: #dc3545;
-            text-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
-            overflow-x: auto;
-        }}
-        
-        .card {{
-            background: rgba(255, 255, 255, 0.95);
-            color: #1f2937;
-            padding: 25px;
-            margin: 20px 0;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        }}
-        
-        .gene-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-        }}
-        
-        .gene-table th, .gene-table td {{
-            padding: 15px;
-            text-align: left;
-            border-bottom: 1px solid #e0e0e0;
-        }}
-        
-        .gene-table th {{
-            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
-            color: white;
-            font-weight: 600;
-        }}
-        
-        tr:hover {{ background-color: #f8f9fa; }}
-        
-        .summary-stats {{
-            display: flex;
-            justify-content: space-around;
-            margin: 20px 0;
-            flex-wrap: wrap;
-        }}
-        
-        .stat-card {{
-            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            margin: 10px;
-            flex: 1;
-            min-width: 200px;
-        }}
-        
-        .quote-container {{
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            padding: 20px;
-            border-radius: 12px;
-            margin: 20px 0;
-            text-align: center;
-            font-style: italic;
-            border-left: 4px solid #dc3545;
-        }}
-        
-        .footer {{
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 30px;
-            border-radius: 12px;
-            margin-top: 40px;
-        }}
-        
-        .footer a {{
-            color: #dc3545;
-            text-decoration: none;
-        }}
-        
-        .footer a:hover {{
-            text-decoration: underline;
-        }}
-        
-        .present {{ background-color: #d4edda; }}
-        .high-risk {{ background-color: #fff3cd; }}
-        .critical {{ background-color: #f8d7da; font-weight: bold; }}
-    </style>
-    {quotes_js}
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="ascii-container">
-                <div class="ascii-art">{self.ascii_art}</div>
-            </div>
-            
-            <div class="card">
-                <h1 style="color: #333; margin: 0; font-size: 2.5em;">🧬 PseudoScope ABRicate - {database.upper()} Database</h1>
-                <p style="color: #666; font-size: 1.2em;">Genome: {genome_name} | Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-                <p style="color: #666; font-size: 0.9em;">Min identity: {self.minid}% | Min coverage: {self.mincov}%</p>
-            </div>
-        </div>
-        
-        <div class="quote-container">
-            <div id="science-quote" style="font-size: 1.1em;"></div>
-        </div>
-        
-        <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">📊 Database Summary</h2>
-            <div class="summary-stats">
-                <div class="stat-card">
-                    <h3>Total Genes</h3>
-                    <p style="font-size: 2em; margin: 0;">{len(hits)}</p>
-                </div>
-                <div class="stat-card">
-                    <h3>Database</h3>
-                    <p style="font-size: 1.5em; margin: 0;">{database.upper()}</p>
-                </div>
-            </div>
-        </div>
-"""
-        
-        if hits:
-            html_content += """
-        <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">🔍 Genes Detected</h2>
-            <table class="gene-table">
-                <thead>
-                    <tr>
-                        <th>Gene</th>
-                        <th>Product</th>
-                        <th>Coverage</th>
-                        <th>Identity</th>
-                        <th>Accession</th>
-                    </tr>
-                </thead>
-                <tbody>
-"""
-            
-            for hit in hits:
-                # Determine row class based on gene risk
-                row_class = "present"
-                gene_base = hit['gene'].split('-')[0]  # Get base gene name (handle blaOXA-23)
-                
-                if any(crit_gene in gene_base for crit_gene in self.critical_resistance_genes):
-                    row_class = "critical"
-                elif any(vf_gene in gene_base for vf_gene in self.virulence_genes):
-                    row_class = "high-risk"
-                
-                # Truncate very long product descriptions for display
-                product_display = hit['product']
-                if len(product_display) > 5000:
-                    product_display = product_display[:4970] + "..."
-                
-                html_content += f"""
-                    <tr class="{row_class}">
-                        <td><strong>{hit['gene']}</strong></td>
-                        <td title="{hit['product']}">{product_display}</td>
-                        <td>{hit['coverage_percent']}%</td>
-                        <td>{hit['identity_percent']}%</td>
-                        <td>{hit['accession']}</td>
-                    </tr>
-"""
-            
-            html_content += """
-                </tbody>
-            </table>
-        </div>
-"""
-        else:
-            html_content += """
-        <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">✅ No Genes Detected</h2>
-            <p>No significant hits found in the {database.upper()} database.</p>
-        </div>
-"""
-        
-        html_content += f"""
-        <div class="footer">
-            <h3 style="color: #fff; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">👥 Contact Information</h3>
-            <p><strong>Author:</strong> Brown Beckley</p>
-            <p><strong>Email:</strong> brownbeckley94@gmail.com</p>
-            <p><strong>GitHub:</strong> <a href="https://github.com/bbeckley-hub" target="_blank">https://github.com/bbeckley-hub</a></p>
-            <p><strong>Affiliation:</strong> University of Ghana Medical School - Department of Medical Biochemistry</p>
-            <p style="margin-top: 20px; font-size: 0.9em; color: #ccc;">
-            </p>
-        </div>
-    </div>
-</body>
-</html>
-"""
-        
-        # Write individual database HTML report
-        html_file = os.path.join(output_dir, f"abricate_{database}_report.html")
-        with open(html_file, 'w') as f:
-            f.write(html_content)
-        
-        self.logger.info("Individual database report: %s", html_file)
-    
+
+    def _write_merged_raw_tsv(self, results: Dict[str, Dict], output_dir: str):
+        """Merge every per-database ABRicate output into ONE abricate_raw.tsv."""
+        output_file = os.path.join(output_dir, "abricate_raw.tsv")
+        header_written = False
+        data_lines = 0
+        with open(output_file, 'w') as f:
+            for db, result in results.items():
+                raw = result.get('raw_content', '') or ''
+                if not raw:
+                    continue
+                for line in raw.splitlines():
+                    if not line.strip():
+                        continue
+                    if line.startswith('#'):
+                        if not header_written:
+                            f.write(line + '\n')
+                            header_written = True
+                    else:
+                        f.write(line + '\n')
+                        data_lines += 1
+        self.logger.info("Merged raw TSV: %s (%d hits across %d databases)",
+                         output_file, data_lines, len(results))
+
+    # ───────────────────── resistance/virulence analysis ─────────────────
     def analyze_pseudo_resistance(self, all_hits: List[Dict]) -> Dict[str, Any]:
-        """Enhanced P. aeruginosa resistance analysis with comprehensive risk assessment"""
         analysis = {
             'carbapenemase_status': 'negative',
             'esbl_status': 'negative',
@@ -738,379 +414,364 @@ class PseudoAbricateExecutor:
             'total_high_risk_resistance': 0,
             'total_critical_virulence': 0,
             'total_high_risk_virulence': 0,
-            'total_hits': len(all_hits)
+            'total_hits': len(all_hits),
         }
-        
         for hit in all_hits:
             gene = hit['gene']
             gene_base = gene.split('-')[0] if '-' in gene else gene
             gene_lower = gene.lower()
-            
-            # Check for CRITICAL CARBAPENEMASE patterns (🔴 HIGHEST PRIORITY for P. aeruginosa)
+
             if any(carba in gene_lower for carba in ['oxa', 'imp', 'vim', 'ndm', 'kpc', 'ges', 'spm', 'aim', 'dim']):
-                if any(crit_gene in gene_lower for crit_gene in [g.lower() for g in self.critical_carbapenemases]):
+                if any(crit in gene_lower for crit in [g.lower() for g in self.critical_carbapenemases]):
                     analysis['carbapenemase_status'] = 'positive'
-                    risk_level = 'CARBAPENEMASE'
-                    
-                    analysis['critical_carbapenemase_genes'].append({
-                        'gene': gene,
-                        'product': hit['product'],
-                        'database': hit['database'],
-                        'coverage': hit['coverage_percent'],
-                        'identity': hit['identity_percent'],
-                        'risk_level': risk_level
-                    })
-            
-            # Check for CRITICAL ESBL patterns
+                    analysis['critical_carbapenemase_genes'].append(self._hit_record(hit, 'CARBAPENEMASE'))
             elif any(esbl in gene_lower for esbl in ['per', 'veb', 'bel', 'ges', 'tem', 'shv', 'ctx']):
-                if any(crit_gene in gene_lower for crit_gene in [g.lower() for g in self.critical_esbls]):
+                if any(crit in gene_lower for crit in [g.lower() for g in self.critical_esbls]):
                     analysis['esbl_status'] = 'positive'
-                    risk_level = 'ESBL'
-                    
-                    analysis['critical_esbl_genes'].append({
-                        'gene': gene,
-                        'product': hit['product'],
-                        'database': hit['database'],
-                        'coverage': hit['coverage_percent'],
-                        'identity': hit['identity_percent'],
-                        'risk_level': risk_level
-                    })
-            
-            # Check for CRITICAL COLISTIN resistance
+                    analysis['critical_esbl_genes'].append(self._hit_record(hit, 'ESBL'))
             elif any(mcr in gene_lower for mcr in ['mcr']) or any(pm in gene_lower for pm in ['pmr', 'pho', 'mgr', 'lpx', 'arn', 'ept', 'bas']):
-                if any(crit_gene in gene_lower for crit_gene in [g.lower() for g in self.critical_colistin]):
+                if any(crit in gene_lower for crit in [g.lower() for g in self.critical_colistin]):
                     analysis['colistin_resistance'] = 'positive'
-                    risk_level = 'COLISTIN-RES'
-                    
-                    analysis['critical_colistin_genes'].append({
-                        'gene': gene,
-                        'product': hit['product'],
-                        'database': hit['database'],
-                        'coverage': hit['coverage_percent'],
-                        'identity': hit['identity_percent'],
-                        'risk_level': risk_level
-                    })
-            
-            # Check for CRITICAL AMINOGLYCOSIDE resistance
+                    analysis['critical_colistin_genes'].append(self._hit_record(hit, 'COLISTIN-RES'))
             elif any(ag in gene_lower for ag in ['arm', 'rmt', 'npm', 'aac', 'ant', 'aph', 'str']):
-                if any(crit_gene in gene_lower for crit_gene in [g.lower() for g in self.critical_aminoglycoside]):
-                    analysis['critical_aminoglycoside_genes'].append({
-                        'gene': gene,
-                        'product': hit['product'],
-                        'database': hit['database'],
-                        'coverage': hit['coverage_percent'],
-                        'identity': hit['identity_percent'],
-                        'risk_level': 'CRITICAL_AMINOGLYCOSIDE'
-                    })
-            
-            # Check for HIGH RISK resistance genes
-            elif any(hr_gene in gene_lower for hr_gene in [g.lower() for g in self.high_risk_resistance]):
-                analysis['high_risk_resistance_genes'].append({
-                    'gene': gene,
-                    'product': hit['product'],
-                    'database': hit['database'],
-                    'coverage': hit['coverage_percent'],
-                    'identity': hit['identity_percent'],
-                    'risk_level': 'HIGH-RISK'
-                })
-            
-            # Check for CRITICAL virulence genes (exoU, exoS, exoT, exoY)
+                if any(crit in gene_lower for crit in [g.lower() for g in self.critical_aminoglycoside]):
+                    analysis['critical_aminoglycoside_genes'].append(self._hit_record(hit, 'CRITICAL_AMINOGLYCOSIDE'))
+            elif any(hr in gene_lower for hr in [g.lower() for g in self.high_risk_resistance]):
+                analysis['high_risk_resistance_genes'].append(self._hit_record(hit, 'HIGH-RISK'))
+
             if any(crit_vf in gene_base for crit_vf in self.critical_virulence_genes):
-                analysis['critical_virulence_genes'].append({
-                    'gene': gene,
-                    'product': hit['product'],
-                    'database': hit['database'],
-                    'coverage': hit['coverage_percent'],
-                    'identity': hit['identity_percent'],
-                    'risk_level': 'CRITICAL-VIRULENCE'
-                })
-            
-            # Check for HIGH RISK virulence genes
-            elif any(vf_gene in gene_lower for vf_gene in [g.lower() for g in self.virulence_genes]):
-                # Determine if it's high risk (Type III, toxins, etc.)
-                is_high_risk_virulence = any(hr_vf in gene_lower for hr_vf in [
-                    'exo', 'psc', 'pcr', 'exs', 'las', 'rhl', 'apr', 'plc', 'tox'
-                ])
-                
-                if is_high_risk_virulence:
-                    analysis['high_risk_virulence_genes'].append({
-                        'gene': gene,
-                        'product': hit['product'],
-                        'database': hit['database'],
-                        'coverage': hit['coverage_percent'],
-                        'identity': hit['identity_percent'],
-                        'risk_level': 'HIGH-VIRULENCE'
-                    })
+                analysis['critical_virulence_genes'].append(self._hit_record(hit, 'CRITICAL-VIRULENCE'))
+            elif any(vf in gene_lower for vf in [g.lower() for g in self.virulence_genes]):
+                is_high = any(hr in gene_lower for hr in ['exo', 'psc', 'pcr', 'exs', 'las', 'rhl', 'apr', 'plc', 'tox'])
+                if is_high:
+                    analysis['high_risk_virulence_genes'].append(self._hit_record(hit, 'HIGH-VIRULENCE'))
                 else:
-                    analysis['moderate_risk_genes'].append({
-                        'gene': gene,
-                        'product': hit['product'],
-                        'database': hit['database'],
-                        'coverage': hit['coverage_percent'],
-                        'identity': hit['identity_percent'],
-                        'risk_level': 'MODERATE'
-                    })
-            
-            # Track resistance classes
+                    analysis['moderate_risk_genes'].append(self._hit_record(hit, 'MODERATE'))
+
             resistance_class = self._classify_resistance(hit['product'], gene)
             if resistance_class:
                 if resistance_class not in analysis['resistance_classes']:
                     analysis['resistance_classes'][resistance_class] = []
                 if gene not in [g['gene'] for g in analysis['resistance_classes'][resistance_class]]:
                     analysis['resistance_classes'][resistance_class].append({
-                        'gene': gene,
-                        'product': hit['product']
+                        'gene': gene, 'product': hit['product']
                     })
-        
-        # Calculate totals
+
         analysis['total_critical_resistance'] = (
-            len(analysis['critical_carbapenemase_genes']) +
-            len(analysis['critical_esbl_genes']) +
-            len(analysis['critical_colistin_genes']) +
-            len(analysis['critical_aminoglycoside_genes'])
+            len(analysis['critical_carbapenemase_genes'])
+            + len(analysis['critical_esbl_genes'])
+            + len(analysis['critical_colistin_genes'])
+            + len(analysis['critical_aminoglycoside_genes'])
         )
         analysis['total_high_risk_resistance'] = len(analysis['high_risk_resistance_genes'])
         analysis['total_critical_virulence'] = len(analysis['critical_virulence_genes'])
         analysis['total_high_risk_virulence'] = len(analysis['high_risk_virulence_genes'])
-        
         return analysis
 
+    @staticmethod
+    def _hit_record(hit: Dict, risk_level: str) -> Dict:
+        return {
+            'gene': hit['gene'],
+            'product': hit['product'],
+            'database': hit['database'],
+            'coverage': hit['coverage_percent'],
+            'identity': hit['identity_percent'],
+            'risk_level': risk_level,
+        }
+
     def _classify_resistance(self, product: str, gene: str) -> str:
-        """Enhanced resistance classification for P. aeruginosa"""
-        product_lower = product.lower()
-        gene_lower = gene.lower()
-        
-        if any(term in product_lower or term in gene_lower for term in ['carbapenem', 'oxa', 'imp', 'vim', 'ndm', 'kpc', 'spm', 'aim']):
+        p = product.lower()
+        g = gene.lower()
+        if any(t in p or t in g for t in ['carbapenem', 'oxa', 'imp', 'vim', 'ndm', 'kpc', 'spm', 'aim']):
             return 'Carbapenem resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['beta-lactam', 'esbl', 'per', 'veb', 'bel', 'ges', 'tem', 'shv', 'ctx']):
+        if any(t in p or t in g for t in ['beta-lactam', 'esbl', 'per', 'veb', 'bel', 'ges', 'tem', 'shv', 'ctx']):
             return 'Beta-lactam resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['aminoglycoside', 'aac', 'ant', 'aph', 'str', 'arm', 'rmt']):
+        if any(t in p or t in g for t in ['aminoglycoside', 'aac', 'ant', 'aph', 'str', 'arm', 'rmt']):
             return 'Aminoglycoside resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['tetracycline', 'tet']):
+        if any(t in p or t in g for t in ['tetracycline', 'tet']):
             return 'Tetracycline resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['sulfonamide', 'sul']):
+        if any(t in p or t in g for t in ['sulfonamide', 'sul']):
             return 'Sulfonamide resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['trimethoprim', 'dfr']):
+        if any(t in p or t in g for t in ['trimethoprim', 'dfr']):
             return 'Trimethoprim resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['chloramphenicol', 'cat', 'cml', 'flor']):
+        if any(t in p or t in g for t in ['chloramphenicol', 'cat', 'cml', 'flor']):
             return 'Chloramphenicol resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['macrolide', 'erm', 'mph', 'msr']):
+        if any(t in p or t in g for t in ['macrolide', 'erm', 'mph', 'msr']):
             return 'Macrolide resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['quinolone', 'qnr', 'qep']):
+        if any(t in p or t in g for t in ['quinolone', 'qnr', 'qep']):
             return 'Quinolone resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['colistin', 'polymyxin', 'mcr', 'pmr', 'pho', 'mgr', 'lpx']):
+        if any(t in p or t in g for t in ['colistin', 'polymyxin', 'mcr', 'pmr', 'pho', 'mgr', 'lpx']):
             return 'Polymyxin resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['fosfomycin', 'fos']):
+        if any(t in p or t in g for t in ['fosfomycin', 'fos']):
             return 'Fosfomycin resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['rifampicin', 'arr']):
+        if any(t in p or t in g for t in ['rifampicin', 'arr']):
             return 'Rifampicin resistance'
-        elif any(term in product_lower or term in gene_lower for term in ['efflux', 'mex', 'opr']):
+        if any(t in p or t in g for t in ['efflux', 'mex', 'opr']):
             return 'Efflux pumps'
-        elif any(term in product_lower or term in gene_lower for term in ['virulence', 'toxin', 'exo', 'exs', 'psc', 'las', 'rhl', 'alg', 'pil', 'fli']):
+        if any(t in p or t in g for t in ['virulence', 'toxin', 'exo', 'exs', 'psc', 'las', 'rhl', 'alg', 'pil', 'fli']):
             return 'Virulence factors'
-        else:
-            return 'Other resistance'
-    
-    def create_comprehensive_html_report(self, genome_name: str, results: Dict, output_dir: str):
-        """Create comprehensive HTML report for P. aeruginosa with PseudoScope styling"""
+        return 'Other resistance'
+
+    # ─────────────────────── shared HTML helpers ────────────────────────
+    def _get_shared_css(self) -> str:
+        return """
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(135deg, #2A1408 0%, #5C2E0B 40%, #8B4513 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #ffffff; padding: 20px; min-height: 100vh;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .ascii-container {
+            background: rgba(0, 0, 0, 0.75); padding: 20px; border-radius: 15px;
+            margin-bottom: 20px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            border: 2px solid rgba(210, 180, 140, 0.4);
         
-        # Collect all hits
-        all_hits = []
-        for db_result in results.values():
-            all_hits.extend(db_result['hits'])
+            text-align: center;
+        }
+        .ascii-art {
+            font-family: 'Courier New', monospace; font-size: 10px; line-height: 1.1;
+            white-space: pre; color: #E8C39E;
+            text-shadow: 0 0 10px rgba(232, 195, 158, 0.4); overflow-x: auto;
         
-        # Analyze P. aeruginosa resistance
-        analysis = self.analyze_pseudo_resistance(all_hits)
-        
-        # JavaScript for rotating quotes
-        quotes_js = f"""
+            display: inline-block;
+            text-align: left;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.96); color: #2c2c2c;
+            padding: 25px; margin: 20px 0; border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+        .gene-table {
+            width: 100%; border-collapse: collapse; margin: 20px 0;
+            background: white; border-radius: 8px; overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .gene-table th, .gene-table td {
+            padding: 15px; text-align: left; border-bottom: 1px solid #e0e0e0;
+        }
+        .gene-table th {
+            background: linear-gradient(135deg, #A0522D 0%, #5C2E0B 100%);
+            color: white; font-weight: 600;
+        }
+        tr:hover { background-color: #f8f9fa; }
+        .summary-stats {
+            display: flex; justify-content: space-around; margin: 20px 0; flex-wrap: wrap;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #A0522D 0%, #5C2E0B 100%);
+            color: white; padding: 20px; border-radius: 12px; text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin: 10px; flex: 1; min-width: 200px;
+        }
+        .quote-container {
+            background: rgba(255, 255, 255, 0.08); color: white;
+            padding: 20px; border-radius: 12px; margin: 20px 0; text-align: center;
+            font-style: italic; border-left: 4px solid #8B4513;
+        }
+.authorship {
+        margin-top: 15px;
+        padding: 15px;
+        background: rgba(255,255,255,0.08);
+        border-radius: 8px;
+        font-size: 12px;
+    }
+                .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(0,0,0,0.35);
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        .footer a { color: #E8C39E; text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+        .present { background-color: #d4edda; }
+        .high-risk { background-color: #fff3cd; }
+        .critical { background-color: #f5e6d3; font-weight: bold; }
+        .risk-badge {
+            display: inline-block; background: #8B4513; color: white;
+            padding: 5px 10px; border-radius: 15px; margin: 2px; font-size: 0.9em;
+        }
+        .warning-badge {
+            display: inline-block; background: #ffc107; color: black;
+            padding: 5px 10px; border-radius: 15px; margin: 2px; font-size: 0.9em;
+        }
+        .safe-badge {
+            display: inline-block; background: #28a745; color: white;
+            padding: 5px 10px; border-radius: 15px; margin: 2px; font-size: 0.9em;
+        }
+        .percentage-badge {
+            display: inline-block; background: #e3f2fd; color: #1976d2;
+            padding: 2px 8px; border-radius: 12px; font-size: 0.85em;
+            margin-left: 5px; border: 1px solid #bbdefb;
+        }
+        .frequency-cell { font-weight: 600; color: #2c3e50; }
+        """
+
+    def _get_quote_js(self) -> str:
+        return f"""
         <script>
             let quotes = {json.dumps(self.science_quotes)};
             let currentQuote = 0;
-            
             function rotateQuote() {{
                 document.getElementById('science-quote').innerHTML = quotes[currentQuote];
                 currentQuote = (currentQuote + 1) % quotes.length;
             }}
-            
-            // Rotate every 10 seconds
             setInterval(rotateQuote, 10000);
-            
-            // Initial display
-            document.addEventListener('DOMContentLoaded', function() {{
-                rotateQuote();
-            }});
+            document.addEventListener('DOMContentLoaded', rotateQuote);
         </script>
         """
-        
-        html_content = f"""
-<!DOCTYPE html>
-<html>
+
+    def _get_footer_html(self, title: str) -> str:
+        """Return the shared pasty-style footer block for HTML reports."""
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        clean_title = title
+        for prefix in ("PseudoScope - ", "PseudoScope ", "PSEUDOSCOPE - "):
+            if clean_title.startswith(prefix):
+                clean_title = clean_title[len(prefix):]
+                break
+        return f"""
+    <div class="footer">
+        <p><strong>PSEUDOSCOPE</strong> - {clean_title}</p>
+        <p class="timestamp">Generated: {current_time}</p>
+        <div class="authorship">
+            <p><strong>Technical Support &amp; Inquiries:</strong></p>
+            <p>Maintainer: Brown Beckley</p>
+            <p>GitHub: <a href="https://github.com/bbeckley-hub" style="color:#E8C39E;">bbeckley-hub</a></p>
+            <p>Email: <a href="mailto:brownbeckley94@gmail.com" style="color:#E8C39E;">brownbeckley94@gmail.com</a></p>
+            <p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
+            <p style="margin-top:10px;font-size:11px;opacity:0.8;">
+                Powered by ABRicate (Seemann) | minID={self.minid}% | minCov={self.mincov}%
+            </p>
+        </div>
+    </div>
+    """
+
+    def _render_hit_table(self, title: str, genes: List[Dict], row_class: str, badge_class: str) -> str:
+        if not genes:
+            return ""
+        html = f"""
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #8B4513; padding-bottom: 10px;">{title}</h2>
+            <table class="gene-table">
+                <thead>
+                    <tr>
+                        <th>Gene</th><th>Product</th><th>Database</th>
+                        <th>Coverage</th><th>Identity</th><th>Risk Level</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        for g in genes:
+            product = g['product']
+            if len(product) > 1000:
+                product = product[:1000] + "..."
+            html += f"""
+                    <tr class="{row_class}">
+                        <td><strong>{g['gene']}</strong></td>
+                        <td title="{g['product']}">{product}</td>
+                        <td>{g['database']}</td>
+                        <td>{g['coverage']}%</td>
+                        <td>{g['identity']}%</td>
+                        <td><span class="{badge_class}">{g['risk_level']}</span></td>
+                    </tr>
+            """
+        html += "</tbody></table></div>"
+        return html
+
+    # ─────────────────────── comprehensive HTML report ─────────────────
+    def create_comprehensive_html_report(self, genome_name: str, results: Dict, output_dir: str):
+        all_hits = []
+        for db_result in results.values():
+            all_hits.extend(db_result['hits'])
+        analysis = self.analyze_pseudo_resistance(all_hits)
+        random_quote = random.choice(self.science_quotes)
+
+        # Critical alerts
+        alerts_html = ""
+        critical_alerts = []
+        if analysis['carbapenemase_status'] == 'positive':
+            critical_alerts.append("🔴 CARBAPENEMASE DETECTED")
+        if analysis['esbl_status'] == 'positive':
+            critical_alerts.append("🟡 ESBL DETECTED")
+        if analysis['colistin_resistance'] == 'positive':
+            critical_alerts.append("🔴 COLISTIN RESISTANCE DETECTED")
+        if critical_alerts:
+            badges = "".join(f'<span class="risk-badge">{a}</span>' for a in critical_alerts)
+            alerts_html = f"""
+        <div class="card" style="border-left: 4px solid #8B4513;">
+            <h2 style="color: #5C2E0B;">⚠️ CRITICAL RESISTANCE ALERTS</h2>
+            <div style="margin: 10px 0;">{badges}</div>
+        </div>
+        """
+
+        # Resistance classes block
+        resistance_classes_html = ""
+        if analysis['resistance_classes']:
+            blocks = ""
+            for class_name, genes in analysis['resistance_classes'].items():
+                gene_list = ", ".join(sorted(g['gene'] for g in genes))
+                blocks += f"""
+                <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 8px;">
+                    <strong style="color: #8B4513;">{class_name}</strong> ({len(genes)} genes)
+                    <br><span style="color: #666; font-size: 0.9em;">{gene_list}</span>
+                </div>
+                """
+            resistance_classes_html = f"""
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #8B4513; padding-bottom: 10px;">🧪 Resistance Classes Detected</h2>
+            {blocks}
+        </div>
+        """
+
+        tables_html = ""
+        tables_html += self._render_hit_table(
+            "🔴 CRITICAL Carbapenemase Genes", analysis['critical_carbapenemase_genes'],
+            "critical", "risk-badge")
+        tables_html += self._render_hit_table(
+            "🟡 Critical ESBL Genes", analysis['critical_esbl_genes'],
+            "critical", "warning-badge")
+        tables_html += self._render_hit_table(
+            "🔴 Colistin Resistance Genes", analysis['critical_colistin_genes'],
+            "critical", "risk-badge")
+        tables_html += self._render_hit_table(
+            "🔴 Critical Aminoglycoside Genes", analysis['critical_aminoglycoside_genes'],
+            "critical", "risk-badge")
+        tables_html += self._render_hit_table(
+            "🟡 High-Risk Resistance Genes", analysis['high_risk_resistance_genes'],
+            "high-risk", "warning-badge")
+        tables_html += self._render_hit_table(
+            "🟢 Critical Virulence Genes", analysis['critical_virulence_genes'],
+            "high-risk", "warning-badge")
+        tables_html += self._render_hit_table(
+            "🟢 High-Risk Virulence Genes", analysis['high_risk_virulence_genes'],
+            "high-risk", "warning-badge")
+        tables_html += self._render_hit_table(
+            "Moderate Risk Genes", analysis['moderate_risk_genes'],
+            "present", "safe-badge")
+
+        # DB summary rows
+        db_summary_rows = ""
+        for db, result in results.items():
+            status_icon = "OK" if result['status'] == 'success' else "FAIL"
+            db_summary_rows += f"""
+                    <tr>
+                        <td>{db}</td>
+                        <td>{result['hit_count']}</td>
+                        <td>{status_icon} {result['status']}</td>
+                    </tr>
+            """
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>PseudoScope ABRicate Analysis Report</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        
-        body {{
-            background: linear-gradient(135deg, #2c0b0e 0%, #4a1c20 50%, #6b2b2f 100%);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #ffffff;
-            padding: 20px;
-            min-height: 100vh;
-        }}
-        
-        .container {{
-            max-width: 1400px;
-            margin: 0 auto;
-        }}
-        
-        .header {{
-            text-align: center;
-            margin-bottom: 30px;
-        }}
-        
-        .ascii-container {{
-            background: rgba(0, 0, 0, 0.7);
-            padding: 20px;
-            border-radius: 15px;
-            margin-bottom: 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-            border: 2px solid #dc3545;
-        }}
-        
-        .ascii-art {{
-            font-family: 'Courier New', monospace;
-            font-size: 10px;
-            line-height: 1.1;
-            white-space: pre;
-            color: #dc3545;
-            text-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
-            overflow-x: auto;
-        }}
-        
-        .card {{
-            background: rgba(255, 255, 255, 0.95);
-            color: #1f2937;
-            padding: 25px;
-            margin: 20px 0;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        }}
-        
-        .gene-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-        }}
-        
-        .gene-table th, .gene-table td {{
-            padding: 15px;
-            text-align: left;
-            border-bottom: 1px solid #e0e0e0;
-        }}
-        
-        .gene-table th {{
-            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
-            color: white;
-            font-weight: 600;
-        }}
-        
-        tr:hover {{ background-color: #f8f9fa; }}
-        
-        .success {{ color: #28a745; font-weight: 600; }}
-        .warning {{ color: #ffc107; font-weight: 600; }}
-        .error {{ color: #dc3545; font-weight: 600; }}
-        .critical {{ background-color: #f8d7da; font-weight: bold; }}
-        .high-risk {{ background-color: #fff3cd; }}
-        
-        .summary-stats {{
-            display: flex;
-            justify-content: space-around;
-            margin: 20px 0;
-            flex-wrap: wrap;
-        }}
-        
-        .stat-card {{
-            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            margin: 10px;
-            flex: 1;
-            min-width: 200px;
-        }}
-        
-        .quote-container {{
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            padding: 20px;
-            border-radius: 12px;
-            margin: 20px 0;
-            text-align: center;
-            font-style: italic;
-            border-left: 4px solid #dc3545;
-        }}
-        
-        .footer {{
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 30px;
-            border-radius: 12px;
-            margin-top: 40px;
-        }}
-        
-        .footer a {{
-            color: #dc3545;
-            text-decoration: none;
-        }}
-        
-        .footer a:hover {{
-            text-decoration: underline;
-        }}
-        
-        .risk-badge {{
-            display: inline-block;
-            background: #dc3545;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 15px;
-            margin: 2px;
-            font-size: 0.9em;
-        }}
-        
-        .warning-badge {{
-            display: inline-block;
-            background: #ffc107;
-            color: black;
-            padding: 5px 10px;
-            border-radius: 15px;
-            margin: 2px;
-            font-size: 0.9em;
-        }}
-        
-        .safe-badge {{
-            display: inline-block;
-            background: #28a745;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 15px;
-            margin: 2px;
-            font-size: 0.9em;
-        }}
-    </style>
-    {quotes_js}
+    <title>PseudoScope ABRicate - Comprehensive Report - {genome_name}</title>
+    <style>{self._get_shared_css()}</style>
+    {self._get_quote_js()}
 </head>
 <body>
     <div class="container">
@@ -1118,20 +779,13 @@ class PseudoAbricateExecutor:
             <div class="ascii-container">
                 <div class="ascii-art">{self.ascii_art}</div>
             </div>
-            
-            <div class="card">
-                <h1 style="color: #333; margin: 0; font-size: 2.5em;">🧬 PseudoScope ABRicate Analysis Report</h1>
-                <p style="color: #666; font-size: 1.2em;">Comprehensive <em>Pseudomonas aeruginosa</em> Antimicrobial Resistance & Virulence Analysis</p>
-                <p style="color: #666; font-size: 0.9em;">Min identity: {self.minid}% | Min coverage: {self.mincov}%</p>
+            <div class="quote-container">
+                <div id="science-quote" style="font-size: 1.1em;"></div>
             </div>
         </div>
-        
-        <div class="quote-container">
-            <div id="science-quote" style="font-size: 1.1em;"></div>
-        </div>
-        
+
         <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">📊 P. aeruginosa AMR Summary</h2>
+            <h2 style="color: #333; border-bottom: 2px solid #8B4513; padding-bottom: 10px;">📊 P. aeruginosa AMR Summary</h2>
             <div class="summary-stats">
                 <div class="stat-card">
                     <h3>Total Genes</h3>
@@ -1149,320 +803,170 @@ class PseudoAbricateExecutor:
             <p><strong>Genome:</strong> {genome_name}</p>
             <p><strong>Date:</strong> {self.metadata['analysis_date']}</p>
             <p><strong>Tool Version:</strong> {self.metadata['version']}</p>
+            <p><strong>Thresholds:</strong> minID={self.minid}%, minCov={self.mincov}%</p>
         </div>
-"""
-        
-        # Critical resistance alerts
-        critical_alerts = []
-        if analysis['carbapenemase_status'] == 'positive':
-            critical_alerts.append("🔴 CARBAPENEMASE DETECTED")
-        if analysis['esbl_status'] == 'positive':
-            critical_alerts.append("🟡 ESBL DETECTED")
-        if analysis['colistin_resistance'] == 'positive':
-            critical_alerts.append("🔴 COLISTIN RESISTANCE DETECTED")
-        
-        if critical_alerts:
-            html_content += f"""
-        <div class="card" style="border-left: 4px solid #dc3545;">
-            <h2 style="color: #dc3545;">⚠️ CRITICAL RESISTANCE ALERTS</h2>
-            <div style="margin: 10px 0;">
-"""
-            for alert in critical_alerts:
-                html_content += f'<span class="risk-badge">{alert}</span>'
-            html_content += """
-            </div>
-        </div>
-"""
-        
-        # Resistance classes summary
-        if analysis['resistance_classes']:
-            html_content += """
+
+        {alerts_html}
+        {resistance_classes_html}
+        {tables_html}
+
         <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">🧪 Resistance Classes Detected</h2>
-            <div style="margin: 20px 0;">
-"""
-            
-            for class_name, genes in analysis['resistance_classes'].items():
-                gene_list = ", ".join([g['gene'] for g in genes])
-                html_content += f"""
-                <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 8px;">
-                    <strong style="color: #dc3545;">{class_name}</strong> ({len(genes)} genes)
-                    <br><span style="color: #666; font-size: 0.9em;">{gene_list}</span>
-                </div>
-"""
-            
-            html_content += "</div></div>"
-        
-        # Critical carbapenemase genes table
-        if analysis['critical_carbapenemase_genes']:
-            html_content += """
-        <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">🔴 CRITICAL Carbapenemase Genes</h2>
+            <h2 style="color: #333; border-bottom: 2px solid #8B4513; padding-bottom: 10px;">🗃️ Database Results Summary</h2>
             <table class="gene-table">
                 <thead>
-                    <tr>
-                        <th>Gene</th>
-                        <th>Product</th>
-                        <th>Database</th>
-                        <th>Coverage</th>
-                        <th>Identity</th>
-                        <th>Risk Level</th>
-                    </tr>
+                    <tr><th>Database</th><th>Hits</th><th>Status</th></tr>
                 </thead>
                 <tbody>
-"""
-            
-            for gene_info in analysis['critical_carbapenemase_genes']:
-                product_display = gene_info['product']
-                if len(product_display) > 1000:
-                    product_display = gene_info['product'][:1000] + "..."
-                
-                html_content += f"""
-                    <tr class="critical">
-                        <td><strong>{gene_info['gene']}</strong></td>
-                        <td title="{gene_info['product']}">{product_display}</td>
-                        <td>{gene_info['database']}</td>
-                        <td>{gene_info['coverage']}%</td>
-                        <td>{gene_info['identity']}%</td>
-                        <td><span class="risk-badge">{gene_info['risk_level']}</span></td>
-                    </tr>
-"""
-            
-            html_content += """
+                    {db_summary_rows}
                 </tbody>
             </table>
         </div>
-"""
-        
-        # Critical ESBL genes table
-        if analysis['critical_esbl_genes']:
-            html_content += """
-        <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">🟡 Critical ESBL Genes</h2>
-            <table class="gene-table">
-                <thead>
-                    <tr>
-                        <th>Gene</th>
-                        <th>Product</th>
-                        <th>Database</th>
-                        <th>Coverage</th>
-                        <th>Identity</th>
-                        <th>Risk Level</th>
-                    </tr>
-                </thead>
-                <tbody>
-"""
-            
-            for gene_info in analysis['critical_esbl_genes']:
-                product_display = gene_info['product']
-                if len(product_display) > 1000:
-                    product_display = gene_info['product'][:1000] + "..."
-                
-                html_content += f"""
-                    <tr class="critical">
-                        <td><strong>{gene_info['gene']}</strong></td>
-                        <td title="{gene_info['product']}">{product_display}</td>
-                        <td>{gene_info['database']}</td>
-                        <td>{gene_info['coverage']}%</td>
-                        <td>{gene_info['identity']}%</td>
-                        <td><span class="warning-badge">{gene_info['risk_level']}</span></td>
-                    </tr>
-"""
-            
-            html_content += """
-                </tbody>
-            </table>
-        </div>
-"""
-        
-        # Critical colistin resistance genes table
-        if analysis['critical_colistin_genes']:
-            html_content += """
-        <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">🔴 Colistin Resistance Genes</h2>
-            <table class="gene-table">
-                <thead>
-                    <tr>
-                        <th>Gene</th>
-                        <th>Product</th>
-                        <th>Database</th>
-                        <th>Coverage</th>
-                        <th>Identity</th>
-                        <th>Risk Level</th>
-                    </tr>
-                </thead>
-                <tbody>
-"""
-            
-            for gene_info in analysis['critical_colistin_genes']:
-                product_display = gene_info['product']
-                if len(product_display) > 1000:
-                    product_display = gene_info['product'][:1000] + "..."
-                
-                html_content += f"""
-                    <tr class="critical">
-                        <td><strong>{gene_info['gene']}</strong></td>
-                        <td title="{gene_info['product']}">{product_display}</td>
-                        <td>{gene_info['database']}</td>
-                        <td>{gene_info['coverage']}%</td>
-                        <td>{gene_info['identity']}%</td>
-                        <td><span class="risk-badge">{gene_info['risk_level']}</span></td>
-                    </tr>
-"""
-            
-            html_content += """
-                </tbody>
-            </table>
-        </div>
-"""
-        
-        # High-risk resistance genes table
-        if analysis['high_risk_resistance_genes']:
-            html_content += """
-        <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">🟡 High-Risk Resistance Genes</h2>
-            <table class="gene-table">
-                <thead>
-                    <tr>
-                        <th>Gene</th>
-                        <th>Product</th>
-                        <th>Database</th>
-                        <th>Coverage</th>
-                        <th>Identity</th>
-                        <th>Risk Level</th>
-                    </tr>
-                </thead>
-                <tbody>
-"""
-            
-            for gene_info in analysis['high_risk_resistance_genes']:
-                product_display = gene_info['product']
-                if len(product_display) > 100:
-                    product_display = gene_info['product'][:10000] + "..."
-                
-                html_content += f"""
-                    <tr class="high-risk">
-                        <td><strong>{gene_info['gene']}</strong></td>
-                        <td title="{gene_info['product']}">{product_display}</td>
-                        <td>{gene_info['database']}</td>
-                        <td>{gene_info['coverage']}%</td>
-                        <td>{gene_info['identity']}%</td>
-                        <td><span class="warning-badge">{gene_info['risk_level']}</span></td>
-                    </tr>
-"""
-            
-            html_content += """
-                </tbody>
-            </table>
-        </div>
-"""
-        
-        # Database summary
-        html_content += """
-        <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">🗃️ Database Results Summary</h2>
-            <table class="gene-table">
-                <thead>
-                    <tr>
-                        <th>Database</th>
-                        <th>Hits</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-"""
-        
-        for db, result in results.items():
-            status_icon = "✅" if result['status'] == 'success' else "❌"
-            html_content += f"""
-                    <tr>
-                        <td>{db}</td>
-                        <td>{result['hit_count']}</td>
-                        <td>{status_icon} {result['status']}</td>
-                    </tr>
-"""
-        
-        html_content += """
-                </tbody>
-            </table>
-        </div>
-        
-        <div class="footer">
-            <h3 style="color: #fff; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">👥 Contact Information</h3>
-            <p><strong>Author:</strong> Brown Beckley</p>
-            <p><strong>Email:</strong> brownbeckley94@gmail.com</p>
-            <p><strong>GitHub:</strong> <a href="https://github.com/bbeckley-hub" target="_blank">https://github.com/bbeckley-hub</a></p>
-            <p><strong>Affiliation:</strong> University of Ghana Medical School - Department of Medical Biochemistry</p>
-            <p style="margin-top: 20px; font-size: 0.9em; color: #ccc;">
-            </p>
-        </div>
+
+        {self._get_footer_html("PseudoScope - Comprehensive ABRicate Report")}
     </div>
 </body>
-</html>
-"""
-        
-        # Write comprehensive HTML report
+</html>"""
+
         html_file = os.path.join(output_dir, f"{genome_name}_comprehensive_abricate_report.html")
         with open(html_file, 'w') as f:
             f.write(html_content)
-        
-        self.logger.info("Comprehensive P. aeruginosa HTML report generated: %s", html_file)
-    
+        self.logger.info("Comprehensive HTML report generated: %s", html_file)
+
+    # ───────────────────── batch-level TSV + HTML summaries ─────────────
     def create_database_summaries(self, all_results: Dict[str, Any], output_base: str):
-        """Create ABRicate summary files and HTML reports for each database across all genomes"""
+        """Write per-database TSV and HTML batch summaries (NO per-database JSON)."""
         self.logger.info("Creating P. aeruginosa database summary files and HTML reports...")
-        
-        # Group results by database
-        db_results = {}
+        db_results: Dict[str, List[Dict]] = {}
         for genome_name, genome_result in all_results.items():
             for db, db_result in genome_result['results'].items():
-                if db not in db_results:
-                    db_results[db] = []
-                
-                # Add hits with genome name
+                db_results.setdefault(db, [])
                 for hit in db_result['hits']:
-                    hit_with_genome = hit.copy()
-                    hit_with_genome['genome'] = genome_name
-                    db_results[db].append(hit_with_genome)
-        
-        # Create summary files for each database
+                    h = hit.copy()
+                    h['genome'] = genome_name
+                    db_results[db].append(h)
+
         for db, hits in db_results.items():
-            if hits:
-                # Create TSV summary
-                summary_file = os.path.join(output_base, f"pseudo_{db}_abricate_summary.tsv")
-                
-                # Get headers from first hit
-                headers = list(hits[0].keys())
-                
-                with open(summary_file, 'w') as f:
-                    # Write header
-                    f.write('\t'.join(headers) + '\n')
-                    
-                    # Write data
-                    for hit in hits:
-                        row = [str(hit.get(header, '')) for header in headers]
-                        f.write('\t'.join(row) + '\n')
-                
-                self.logger.info("✓ Created %s summary: %s (%d hits)", db, summary_file, len(hits))
-                
-                # Create JSON summary for this database
-                self._create_database_json_summary(db, hits, output_base)
-                
-                # Create HTML summary report for this database
-                self._create_database_summary_html(db, hits, output_base)
-            else:
+            if not hits:
                 self.logger.info("No hits for database %s, skipping summary", db)
-    
-    def _create_database_json_summary(self, database: str, hits: List[Dict], output_base: str):
-        """Create JSON summary report for a specific database across all genomes"""
-        
-        # Calculate statistics
-        unique_genomes = list(set(hit['genome'] for hit in hits))
-        unique_genes = list(set(hit['gene'] for hit in hits))
-        
-        # Calculate gene frequency
-        gene_frequency = {}
-        gene_details = {}
+                continue
+            # TSV summary
+            summary_file = os.path.join(output_base, f"pseudo_{db}_abricate_summary.tsv")
+            headers = list(hits[0].keys())
+            with open(summary_file, 'w') as f:
+                f.write('\t'.join(headers) + '\n')
+                for hit in hits:
+                    row = [str(hit.get(h, '')) for h in headers]
+                    f.write('\t'.join(row) + '\n')
+            self.logger.info("Created %s summary: %s (%d hits)", db, summary_file, len(hits))
+            # HTML summary
+            self._create_database_summary_html(db, hits, output_base)
+
+    def _create_database_summary_html(self, database: str, hits: List[Dict], output_base: str):
+        unique_genomes = sorted(set(h['genome'] for h in hits))
+        total_genomes = len(unique_genomes)
+
+        genes_per_genome: Dict[str, set] = {}
+        for hit in hits:
+            genes_per_genome.setdefault(hit['genome'], set()).add(hit['gene'])
+
+        genes_by_genome_rows = ""
+        for genome in unique_genomes:
+            genes = genes_per_genome.get(genome, set())
+            gene_list = ", ".join(sorted(genes))
+            genes_by_genome_rows += f"""
+                    <tr class="present">
+                        <td><strong>{genome}</strong></td>
+                        <td>{len(genes)}</td>
+                        <td>{gene_list}</td>
+                    </tr>
+            """
+
+        gene_frequency: Dict[str, set] = {}
+        for hit in hits:
+            gene_frequency.setdefault(hit['gene'], set()).add(hit['genome'])
+
+        frequency_rows = ""
+        for gene, genomes in sorted(gene_frequency.items(), key=lambda x: len(x[1]), reverse=True):
+            genome_list = ", ".join(sorted(genomes))
+            count = len(genomes)
+            pct = (count / total_genomes * 100) if total_genomes else 0
+            frequency_rows += f"""
+                    <tr>
+                        <td><strong>{gene}</strong></td>
+                        <td class="frequency-cell">{count}
+                            <span class="percentage-badge">({pct:.1f}%)</span>
+                        </td>
+                        <td>{genome_list}</td>
+                    </tr>
+            """
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PseudoScope ABRicate - Batch Summary - {database.upper()}</title>
+    <style>{self._get_shared_css()}</style>
+    {self._get_quote_js()}
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="ascii-container">
+                <div class="ascii-art">{self.ascii_art}</div>
+            </div>
+            <div class="quote-container">
+                <div id="science-quote" style="font-size: 1.1em;"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #8B4513; padding-bottom: 10px;">📊 {database.upper()} Database Batch Summary</h2>
+            <div class="summary-stats">
+                <div class="stat-card"><h3>Total Hits</h3><p style="font-size: 2em; margin: 0;">{len(hits)}</p></div>
+                <div class="stat-card"><h3>Genomes</h3><p style="font-size: 2em; margin: 0;">{total_genomes}</p></div>
+                <div class="stat-card"><h3>Unique Genes</h3><p style="font-size: 2em; margin: 0;">{len(gene_frequency)}</p></div>
+            </div>
+            <p><strong>Analysis date:</strong> {self.metadata['analysis_date']}</p>
+        </div>
+
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #8B4513; padding-bottom: 10px;">🔍 Genes by Genome</h2>
+            <table class="gene-table">
+                <thead><tr><th>Genome</th><th>Gene Count</th><th>Genes Detected</th></tr></thead>
+                <tbody>{genes_by_genome_rows}</tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2 style="color: #333; border-bottom: 2px solid #8B4513; padding-bottom: 10px;">📈 Gene Frequency</h2>
+            <table class="gene-table">
+                <thead><tr><th>Gene</th><th>Frequency</th><th>Genomes</th></tr></thead>
+                <tbody>{frequency_rows}</tbody>
+            </table>
+        </div>
+
+        {self._get_footer_html(f"PseudoScope - {database.upper()} Batch Summary")}
+    </div>
+</body>
+</html>"""
+        html_file = os.path.join(output_base, f"pseudo_{database}_summary_report.html")
+        with open(html_file, 'w') as f:
+            f.write(html_content)
+        self.logger.info("Database summary HTML report: %s", html_file)
+
+    # ───────────────────── database detailed helper (for master) ────────
+    def _compute_database_detailed_summary(self, database: str, hits: List[Dict]) -> Dict[str, Any]:
+        """Compute the detailed per-database summary that used to live in its own JSON.
+
+        This is now folded into the master JSON so that we only emit ONE JSON
+        at the summary level.
+        """
+        unique_genomes = list(set(h['genome'] for h in hits))
+        unique_genes = list(set(h['gene'] for h in hits))
+
+        gene_frequency: Dict[str, set] = {}
+        gene_details: Dict[str, Dict[str, Any]] = {}
         for hit in hits:
             gene = hit['gene']
             if gene not in gene_frequency:
@@ -1470,141 +974,91 @@ class PseudoAbricateExecutor:
                 gene_details[gene] = {
                     'product': hit['product'],
                     'databases': set(),
-                    'avg_coverage': 0,
-                    'avg_identity': 0
+                    'coverage_sum': 0.0,
+                    'identity_sum': 0.0,
+                    'count': 0,
                 }
             gene_frequency[gene].add(hit['genome'])
             gene_details[gene]['databases'].add(hit['database'])
-            
-            # Track coverage and identity for averaging
-            if 'coverage_sum' not in gene_details[gene]:
-                gene_details[gene]['coverage_sum'] = 0
-                gene_details[gene]['identity_sum'] = 0
-                gene_details[gene]['count'] = 0
-            
             try:
-                coverage = float(hit['coverage_percent'].replace('%', ''))
-                identity = float(hit['identity_percent'].replace('%', ''))
-                gene_details[gene]['coverage_sum'] += coverage
-                gene_details[gene]['identity_sum'] += identity
+                cov = float(str(hit['coverage_percent']).replace('%', ''))
+                idd = float(str(hit['identity_percent']).replace('%', ''))
+                gene_details[gene]['coverage_sum'] += cov
+                gene_details[gene]['identity_sum'] += idd
                 gene_details[gene]['count'] += 1
-            except:
+            except (ValueError, TypeError):
                 pass
-        
-        # Calculate averages
-        for gene in gene_details:
-            if gene_details[gene]['count'] > 0:
-                gene_details[gene]['avg_coverage'] = round(gene_details[gene]['coverage_sum'] / gene_details[gene]['count'], 2)
-                gene_details[gene]['avg_identity'] = round(gene_details[gene]['identity_sum'] / gene_details[gene]['count'], 2)
-            del gene_details[gene]['coverage_sum']
-            del gene_details[gene]['identity_sum']
-            del gene_details[gene]['count']
-            gene_details[gene]['databases'] = list(gene_details[gene]['databases'])
-        
-        # Calculate per-genome statistics
-        genomes_summary = {}
+
+        for gene, d in gene_details.items():
+            n = d['count'] or 1
+            d['avg_coverage'] = round(d['coverage_sum'] / n, 2)
+            d['avg_identity'] = round(d['identity_sum'] / n, 2)
+            del d['coverage_sum'], d['identity_sum'], d['count']
+            d['databases'] = sorted(d['databases'])
+
+        genomes_summary: Dict[str, Dict[str, Any]] = {}
         for genome in unique_genomes:
             genome_hits = [h for h in hits if h['genome'] == genome]
             genomes_summary[genome] = {
                 'total_hits': len(genome_hits),
                 'unique_genes': len(set(h['gene'] for h in genome_hits)),
-                'genes': list(set(h['gene'] for h in genome_hits))
+                'genes': sorted(set(h['gene'] for h in genome_hits)),
             }
-        
-        # Risk analysis for this database
-        risk_genes = {
+
+        risk_genes: Dict[str, List[str]] = {
             'critical_carbapenemase': [],
             'critical_esbl': [],
             'critical_colistin': [],
             'critical_aminoglycoside': [],
             'high_risk_resistance': [],
-            'virulence_factors': []
+            'virulence_factors': [],
         }
-        
         for gene in unique_genes:
-            gene_base = gene.split('-')[0] if '-' in gene else gene
             gene_lower = gene.lower()
-            
-            # Check critical carbapenemases
-            if any(carba in gene_lower for carba in ['oxa', 'imp', 'vim', 'ndm', 'kpc', 'ges', 'spm', 'aim', 'dim']):
-                if any(crit in gene_lower for crit in [c.lower() for c in self.critical_carbapenemases]):
+            if any(c in gene_lower for c in ['oxa', 'imp', 'vim', 'ndm', 'kpc', 'ges', 'spm', 'aim', 'dim']):
+                if any(c.lower() in gene_lower for c in self.critical_carbapenemases):
                     risk_genes['critical_carbapenemase'].append(gene)
-            
-            # Check critical ESBLs
-            elif any(esbl in gene_lower for esbl in ['per', 'veb', 'bel', 'ges', 'tem', 'shv', 'ctx']):
-                if any(crit in gene_lower for crit in [c.lower() for c in self.critical_esbls]):
+                    continue
+            if any(e in gene_lower for e in ['per', 'veb', 'bel', 'ges', 'tem', 'shv', 'ctx']):
+                if any(c.lower() in gene_lower for c in self.critical_esbls):
                     risk_genes['critical_esbl'].append(gene)
-            
-            # Check critical colistin
-            elif any(mcr in gene_lower for mcr in ['mcr']) or any(pm in gene_lower for pm in ['pmr', 'pho', 'mgr', 'lpx', 'arn', 'ept', 'bas']):
-                if any(crit in gene_lower for crit in [c.lower() for c in self.critical_colistin]):
+                    continue
+            if 'mcr' in gene_lower or any(p in gene_lower for p in ['pmr', 'pho', 'mgr', 'lpx', 'arn', 'ept', 'bas']):
+                if any(c.lower() in gene_lower for c in self.critical_colistin):
                     risk_genes['critical_colistin'].append(gene)
-            
-            # Check critical aminoglycoside
-            elif any(ag in gene_lower for ag in ['arm', 'rmt', 'npm', 'aac', 'ant', 'aph', 'str']):
-                if any(crit in gene_lower for crit in [c.lower() for c in self.critical_aminoglycoside]):
+                    continue
+            if any(a in gene_lower for a in ['arm', 'rmt', 'npm', 'aac', 'ant', 'aph', 'str']):
+                if any(c.lower() in gene_lower for c in self.critical_aminoglycoside):
                     risk_genes['critical_aminoglycoside'].append(gene)
-            
-            # Check high risk resistance
-            elif any(hr in gene_lower for hr in [g.lower() for g in self.high_risk_resistance]):
+                    continue
+            if any(h.lower() in gene_lower for h in self.high_risk_resistance):
                 risk_genes['high_risk_resistance'].append(gene)
-            
-            # Check virulence factors
-            elif any(vf in gene_lower for vf in [g.lower() for g in self.virulence_genes]):
+                continue
+            if any(v.lower() in gene_lower for v in self.virulence_genes):
                 risk_genes['virulence_factors'].append(gene)
-        
-        # Build JSON report
-        json_report = {
-            "metadata": {
-                "database_name": database,
-                "analysis_type": "ABRicate Antimicrobial Resistance & Virulence",
-                "total_genomes": len(unique_genomes),
-                "total_hits": len(hits),
-                "analysis_date": self.metadata['analysis_date'],
-                "tool_version": self.metadata['version'],
-                "min_identity": self.minid,
-                "min_coverage": self.mincov
+
+        return {
+            'unique_genes': len(unique_genes),
+            'gene_analysis': {
+                'most_frequent_genes': {
+                    g: len(gs) for g, gs in sorted(
+                        gene_frequency.items(), key=lambda x: len(x[1]), reverse=True
+                    )
+                },
+                'gene_details': gene_details,
             },
-            "summary_statistics": {
-                "unique_genes": len(unique_genes),
-                "unique_genomes": len(unique_genomes),
-                "hits_per_genome": round(len(hits) / len(unique_genomes), 2) if unique_genomes else 0,
-                "risk_analysis": {
-                    "critical_carbapenemase_genes": len(risk_genes['critical_carbapenemase']),
-                    "critical_esbl_genes": len(risk_genes['critical_esbl']),
-                    "critical_colistin_genes": len(risk_genes['critical_colistin']),
-                    "critical_aminoglycoside_genes": len(risk_genes['critical_aminoglycoside']),
-                    "high_risk_resistance_genes": len(risk_genes['high_risk_resistance']),
-                    "virulence_factors": len(risk_genes['virulence_factors'])
-                }
-            },
-            "gene_analysis": {
-                "most_frequent_genes": dict(sorted(
-                    {gene: len(genomes) for gene, genomes in gene_frequency.items()}.items(),
-                    key=lambda x: x[1],
-                    reverse=True
-                )),
-                "gene_details": gene_details
-            },
-            "genome_analysis": genomes_summary,
-            "risk_genes": risk_genes,
-            "raw_hits_summary": {
-                "total_hits": len(hits),
-                "hits_by_genome": {genome: len([h for h in hits if h['genome'] == genome]) for genome in unique_genomes}
-            }
+            'genome_analysis': genomes_summary,
+            'risk_genes': risk_genes,
         }
-        
-        # Write JSON report
-        json_file = os.path.join(output_base, f"pseudo_{database}_summary.json")
-        with open(json_file, 'w') as f:
-            json.dump(json_report, f, indent=4, default=str)
-        
-        self.logger.info("✓ Created JSON summary: %s", json_file)
-    
+
+    # ───────────────────────── master JSON summary ─────────────────────
     def create_master_json_summary(self, all_results: Dict[str, Any], output_base: str):
-        """Create master JSON summary containing everything from all databases and all genomes"""
-        self.logger.info("Creating master JSON summary for all databases and genomes...")
-        
+        """Write the ONE master JSON summarising every database & genome.
+
+        Per-database JSONs are intentionally NOT emitted — all of their useful
+        data is embedded under ``database_summaries[<db>]`` here.
+        """
+        self.logger.info("Creating master JSON summary (single consolidated JSON)...")
         master_report = {
             "metadata": {
                 **self.metadata,
@@ -1613,8 +1067,8 @@ class PseudoAbricateExecutor:
                 "total_genomes": len(all_results),
                 "analysis_parameters": {
                     "minimum_identity": self.minid,
-                    "minimum_coverage": self.mincov
-                }
+                    "minimum_coverage": self.mincov,
+                },
             },
             "overall_summary": {
                 "total_genomes": len(all_results),
@@ -1625,7 +1079,7 @@ class PseudoAbricateExecutor:
                 "critical_aminoglycoside_genes": 0,
                 "carbapenemase_positive_genomes": 0,
                 "esbl_positive_genomes": 0,
-                "colistin_resistant_genomes": 0
+                "colistin_resistant_genomes": 0,
             },
             "database_summaries": {},
             "genome_summaries": {},
@@ -1636,36 +1090,29 @@ class PseudoAbricateExecutor:
                 "critical_aminoglycoside_genes_found": [],
                 "high_risk_genes_found": [],
                 "virulence_genes_found": [],
-                "resistance_classes_found": defaultdict(list)
+                "resistance_classes_found": defaultdict(list),
             },
-            "detailed_results": {}
+            "detailed_results": {},
         }
-        
-        # Process each genome
+
         for genome_name, genome_result in all_results.items():
-            # Collect all hits for this genome
             all_genome_hits = []
             for db_result in genome_result['results'].values():
                 all_genome_hits.extend(db_result['hits'])
-            
-            # Analyze resistance for this genome
             analysis = self.analyze_pseudo_resistance(all_genome_hits)
-            
-            # Update overall summary
+
             master_report["overall_summary"]["total_hits"] += analysis['total_hits']
             master_report["overall_summary"]["critical_carbapenemase_genes"] += len(analysis['critical_carbapenemase_genes'])
             master_report["overall_summary"]["critical_esbl_genes"] += len(analysis['critical_esbl_genes'])
             master_report["overall_summary"]["critical_colistin_genes"] += len(analysis['critical_colistin_genes'])
             master_report["overall_summary"]["critical_aminoglycoside_genes"] += len(analysis['critical_aminoglycoside_genes'])
-            
             if analysis['carbapenemase_status'] == 'positive':
                 master_report["overall_summary"]["carbapenemase_positive_genomes"] += 1
             if analysis['esbl_status'] == 'positive':
                 master_report["overall_summary"]["esbl_positive_genomes"] += 1
             if analysis['colistin_resistance'] == 'positive':
                 master_report["overall_summary"]["colistin_resistant_genomes"] += 1
-            
-            # Add to genome summaries
+
             master_report["genome_summaries"][genome_name] = {
                 "total_hits": analysis['total_hits'],
                 "critical_carbapenemase": len(analysis['critical_carbapenemase_genes']),
@@ -1677,67 +1124,55 @@ class PseudoAbricateExecutor:
                 "carbapenemase_status": analysis['carbapenemase_status'],
                 "esbl_status": analysis['esbl_status'],
                 "colistin_resistance": analysis['colistin_resistance'],
-                "database_hits": {db: result['hit_count'] for db, result in genome_result['results'].items()}
+                "database_hits": {db: r['hit_count'] for db, r in genome_result['results'].items()},
             }
-            
-            # Update risk assessment
-            for gene_info in analysis['critical_carbapenemase_genes']:
-                if gene_info['gene'] not in master_report["risk_assessment"]["critical_carbapenemase_genes_found"]:
-                    master_report["risk_assessment"]["critical_carbapenemase_genes_found"].append(gene_info['gene'])
-            
-            for gene_info in analysis['critical_esbl_genes']:
-                if gene_info['gene'] not in master_report["risk_assessment"]["critical_esbl_genes_found"]:
-                    master_report["risk_assessment"]["critical_esbl_genes_found"].append(gene_info['gene'])
-            
-            for gene_info in analysis['critical_colistin_genes']:
-                if gene_info['gene'] not in master_report["risk_assessment"]["critical_colistin_genes_found"]:
-                    master_report["risk_assessment"]["critical_colistin_genes_found"].append(gene_info['gene'])
-            
-            for gene_info in analysis['critical_aminoglycoside_genes']:
-                if gene_info['gene'] not in master_report["risk_assessment"]["critical_aminoglycoside_genes_found"]:
-                    master_report["risk_assessment"]["critical_aminoglycoside_genes_found"].append(gene_info['gene'])
-            
-            for gene_info in analysis['high_risk_resistance_genes']:
-                if gene_info['gene'] not in master_report["risk_assessment"]["high_risk_genes_found"]:
-                    master_report["risk_assessment"]["high_risk_genes_found"].append(gene_info['gene'])
-            
-            for gene_info in analysis['high_risk_virulence_genes'] + analysis['critical_virulence_genes']:
-                if gene_info['gene'] not in master_report["risk_assessment"]["virulence_genes_found"]:
-                    master_report["risk_assessment"]["virulence_genes_found"].append(gene_info['gene'])
-            
-            # Update resistance classes
+
+            for key_analysis, key_master in [
+                ('critical_carbapenemase_genes', 'critical_carbapenemase_genes_found'),
+                ('critical_esbl_genes', 'critical_esbl_genes_found'),
+                ('critical_colistin_genes', 'critical_colistin_genes_found'),
+                ('critical_aminoglycoside_genes', 'critical_aminoglycoside_genes_found'),
+                ('high_risk_resistance_genes', 'high_risk_genes_found'),
+            ]:
+                for g in analysis[key_analysis]:
+                    if g['gene'] not in master_report["risk_assessment"][key_master]:
+                        master_report["risk_assessment"][key_master].append(g['gene'])
+
+            for g in analysis['high_risk_virulence_genes'] + analysis['critical_virulence_genes']:
+                if g['gene'] not in master_report["risk_assessment"]["virulence_genes_found"]:
+                    master_report["risk_assessment"]["virulence_genes_found"].append(g['gene'])
+
             for class_name, genes in analysis['resistance_classes'].items():
-                for gene_info in genes:
-                    if gene_info['gene'] not in [g['gene'] for g in master_report["risk_assessment"]["resistance_classes_found"][class_name]]:
-                        master_report["risk_assessment"]["resistance_classes_found"][class_name].append(gene_info)
-            
-            # Add detailed results
+                for g in genes:
+                    if g['gene'] not in [x['gene'] for x in master_report["risk_assessment"]["resistance_classes_found"][class_name]]:
+                        master_report["risk_assessment"]["resistance_classes_found"][class_name].append(g)
+
             master_report["detailed_results"][genome_name] = {
                 "total_hits": genome_result['total_hits'],
-                "database_results": genome_result['results']
+                "database_results": genome_result['results'],
             }
-        
-        # Create database summaries
+
+        # ─── Per-database summary block (enriched; replaces separate JSONs) ───
         for db in self.required_databases:
-            # Collect all hits for this database across all genomes
             db_hits = []
             for genome_name, genome_result in all_results.items():
                 if db in genome_result['results']:
                     for hit in genome_result['results'][db]['hits']:
-                        hit_with_genome = hit.copy()
-                        hit_with_genome['genome'] = genome_name
-                        db_hits.append(hit_with_genome)
-            
+                        h = hit.copy()
+                        h['genome'] = genome_name
+                        db_hits.append(h)
+
             if db_hits:
                 unique_genes = len(set(h['gene'] for h in db_hits))
                 unique_genomes = len(set(h['genome'] for h in db_hits))
-                
+                detail = self._compute_database_detailed_summary(db, db_hits)
                 master_report["database_summaries"][db] = {
                     "total_hits": len(db_hits),
                     "unique_genes": unique_genes,
                     "unique_genomes": unique_genomes,
                     "hits_per_genome": round(len(db_hits) / unique_genomes, 2) if unique_genomes else 0,
-                    "most_frequent_genes": dict(Counter([h['gene'] for h in db_hits]).most_common(10))
+                    "most_frequent_genes": dict(Counter(h['gene'] for h in db_hits).most_common(10)),
+                    **detail,
                 }
             else:
                 master_report["database_summaries"][db] = {
@@ -1745,605 +1180,259 @@ class PseudoAbricateExecutor:
                     "unique_genes": 0,
                     "unique_genomes": 0,
                     "hits_per_genome": 0,
-                    "most_frequent_genes": {}
+                    "most_frequent_genes": {},
+                    "gene_analysis": {"most_frequent_genes": {}, "gene_details": {}},
+                    "genome_analysis": {},
+                    "risk_genes": {},
                 }
-        
-        # Sort and clean up
-        for key in ["critical_carbapenemase_genes_found", "critical_esbl_genes_found", 
-                   "critical_colistin_genes_found", "critical_aminoglycoside_genes_found",
-                   "high_risk_genes_found", "virulence_genes_found"]:
+
+        for key in ("critical_carbapenemase_genes_found", "critical_esbl_genes_found",
+                    "critical_colistin_genes_found", "critical_aminoglycoside_genes_found",
+                    "high_risk_genes_found", "virulence_genes_found"):
             master_report["risk_assessment"][key].sort()
-        
-        master_report["risk_assessment"]["resistance_classes_found"] = dict(master_report["risk_assessment"]["resistance_classes_found"])
-        
-        # Add performance metrics
+        master_report["risk_assessment"]["resistance_classes_found"] = dict(
+            master_report["risk_assessment"]["resistance_classes_found"]
+        )
+
         master_report["performance_metrics"] = {
             "cpu_cores_used": self.cpus,
             "available_ram_gb": round(self.available_ram, 2),
-            "processing_mode": "MAXIMUM SPEED" if self.cpus > 8 else "STANDARD"
+            "processing_mode": "MAXIMUM SPEED" if self.cpus > 8 else "STANDARD",
         }
-        
-        # Add Excel summary
-        try:
-            # Create DataFrame for Excel export
-            excel_data = []
-            for genome_name, genome_result in all_results.items():
-                all_genome_hits = []
-                for db_result in genome_result['results'].values():
-                    all_genome_hits.extend(db_result['hits'])
-                
-                analysis = self.analyze_pseudo_resistance(all_genome_hits)
-                
-                excel_data.append({
-                    'Genome': genome_name,
-                    'Total_Hits': genome_result['total_hits'],
-                    'Critical_Carbapenemase': len(analysis['critical_carbapenemase_genes']),
-                    'Critical_ESBL': len(analysis['critical_esbl_genes']),
-                    'Critical_Colistin': len(analysis['critical_colistin_genes']),
-                    'Critical_Aminoglycoside': len(analysis['critical_aminoglycoside_genes']),
-                    'High_Risk_Resistance': len(analysis['high_risk_resistance_genes']),
-                    'Virulence_Factors': len(analysis['high_risk_virulence_genes']) + len(analysis['critical_virulence_genes']),
-                    'Carbapenemase_Status': analysis['carbapenemase_status'],
-                    'ESBL_Status': analysis['esbl_status'],
-                    'Colistin_Resistance': analysis['colistin_resistance']
-                })
-            
-            df = pd.DataFrame(excel_data)
-            excel_file = os.path.join(output_base, "pseudo_abricate_master_summary.xlsx")
-            df.to_excel(excel_file, index=False)
-            master_report["excel_summary_file"] = excel_file
-            self.logger.info("✓ Created Excel summary: %s", excel_file)
-        except Exception as e:
-            self.logger.warning("Could not create Excel summary: %s", e)
-        
-        # Write master JSON report
+
+        # Optional Excel export (kept because it's a different format; the JSON is still the ONE json)
+        if pd is not None:
+            try:
+                excel_data = []
+                for genome_name, genome_result in all_results.items():
+                    all_genome_hits = []
+                    for db_result in genome_result['results'].values():
+                        all_genome_hits.extend(db_result['hits'])
+                    a = self.analyze_pseudo_resistance(all_genome_hits)
+                    excel_data.append({
+                        'Genome': genome_name,
+                        'Total_Hits': genome_result['total_hits'],
+                        'Critical_Carbapenemase': len(a['critical_carbapenemase_genes']),
+                        'Critical_ESBL': len(a['critical_esbl_genes']),
+                        'Critical_Colistin': len(a['critical_colistin_genes']),
+                        'Critical_Aminoglycoside': len(a['critical_aminoglycoside_genes']),
+                        'High_Risk_Resistance': len(a['high_risk_resistance_genes']),
+                        'Virulence_Factors': len(a['high_risk_virulence_genes']) + len(a['critical_virulence_genes']),
+                        'Carbapenemase_Status': a['carbapenemase_status'],
+                        'ESBL_Status': a['esbl_status'],
+                        'Colistin_Resistance': a['colistin_resistance'],
+                    })
+                df = pd.DataFrame(excel_data)
+                excel_file = os.path.join(output_base, "pseudo_abricate_master_summary.xlsx")
+                df.to_excel(excel_file, index=False)
+                master_report["excel_summary_file"] = excel_file
+                self.logger.info("Created Excel summary: %s", excel_file)
+            except Exception as e:
+                self.logger.warning("Could not create Excel summary: %s", e)
+
         master_file = os.path.join(output_base, "pseudo_abricate_master_summary.json")
         with open(master_file, 'w') as f:
             json.dump(master_report, f, indent=4, default=str)
-        
-        self.logger.info("✓ Created master JSON summary: %s", master_file)
+        self.logger.info("Created master JSON summary: %s", master_file)
         return master_file
-    
-    def _create_database_summary_html(self, database: str, hits: List[Dict], output_base: str):
-        """Create HTML summary report for a specific database across all genomes"""
-        
-        # JavaScript for rotating quotes
-        quotes_js = f"""
-        <script>
-            let quotes = {json.dumps(self.science_quotes)};
-            let currentQuote = 0;
-            
-            function rotateQuote() {{
-                document.getElementById('science-quote').innerHTML = quotes[currentQuote];
-                currentQuote = (currentQuote + 1) % quotes.length;
-            }}
-            
-            // Rotate every 10 seconds
-            setInterval(rotateQuote, 10000);
-            
-            // Initial display
-            document.addEventListener('DOMContentLoaded', function() {{
-                rotateQuote();
-            }});
-        </script>
+
+    # ─────────────────────────── per-genome pipeline ────────────────────
+    def process_single_genome(self, genome_file: str,
+                              output_base: str = "pseudo_abricate_results") -> Dict[str, Any]:
+        """Process one P. aeruginosa genome. Emits exactly 2 files:
+            1. {genome}_comprehensive_abricate_report.html
+            2. abricate_raw.tsv
         """
-        
-        # Count unique genomes
-        unique_genomes = list(set(hit['genome'] for hit in hits))
-        
-        # Count genes per genome
-        genes_per_genome = {}
-        for hit in hits:
-            genome = hit['genome']
-            if genome not in genes_per_genome:
-                genes_per_genome[genome] = set()
-            genes_per_genome[genome].add(hit['gene'])
-        
-        html_content = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>PseudoScope ABRicate - {database.upper()} Database Summary</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        
-        body {{
-            background: linear-gradient(135deg, #2c0b0e 0%, #4a1c20 50%, #6b2b2f 100%);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #ffffff;
-            padding: 20px;
-            min-height: 100vh;
-        }}
-        
-        .container {{
-            max-width: 1400px;
-            margin: 0 auto;
-        }}
-        
-        .header {{
-            text-align: center;
-            margin-bottom: 30px;
-        }}
-        
-        .ascii-container {{
-            background: rgba(0, 0, 0, 0.7);
-            padding: 20px;
-            border-radius: 15px;
-            margin-bottom: 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-            border: 2px solid #dc3545;
-        }}
-        
-        .ascii-art {{
-            font-family: 'Courier New', monospace;
-            font-size: 10px;
-            line-height: 1.1;
-            white-space: pre;
-            color: #dc3545;
-            text-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
-            overflow-x: auto;
-        }}
-        
-        .card {{
-            background: rgba(255, 255, 255, 0.95);
-            color: #1f2937;
-            padding: 25px;
-            margin: 20px 0;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        }}
-        
-        .gene-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-        }}
-        
-        .gene-table th, .gene-table td {{
-            padding: 15px;
-            text-align: left;
-            border-bottom: 1px solid #e0e0e0;
-        }}
-        
-        .gene-table th {{
-            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
-            color: white;
-            font-weight: 600;
-        }}
-        
-        tr:hover {{ background-color: #f8f9fa; }}
-        
-        .summary-stats {{
-            display: flex;
-            justify-content: space-around;
-            margin: 20px 0;
-            flex-wrap: wrap;
-        }}
-        
-        .stat-card {{
-            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            margin: 10px;
-            flex: 1;
-            min-width: 200px;
-        }}
-        
-        .quote-container {{
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            padding: 20px;
-            border-radius: 12px;
-            margin: 20px 0;
-            text-align: center;
-            font-style: italic;
-            border-left: 4px solid #dc3545;
-        }}
-        
-        .footer {{
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 30px;
-            border-radius: 12px;
-            margin-top: 40px;
-        }}
-        
-        .footer a {{
-            color: #dc3545;
-            text-decoration: none;
-        }}
-        
-        .footer a:hover {{
-            text-decoration: underline;
-        }}
-        
-        .present {{ background-color: #d4edda; }}
-    </style>
-    {quotes_js}
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="ascii-container">
-                <div class="ascii-art">{self.ascii_art}</div>
-            </div>
-            
-            <div class="card">
-                <h1 style="color: #333; margin: 0; font-size: 2.5em;">🧬 PseudoScope ABRicate - {database.upper()} Database Summary</h1>
-                <p style="color: #666; font-size: 1.2em;">Cross-genome analysis of {database.upper()} database results</p>
-                <p style="color: #666; font-size: 0.9em;">Min identity: {self.minid}% | Min coverage: {self.mincov}%</p>
-            </div>
-        </div>
-        
-        <div class="quote-container">
-            <div id="science-quote" style="font-size: 1.1em;"></div>
-        </div>
-        
-        <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">📊 Database Overview</h2>
-            <div class="summary-stats">
-                <div class="stat-card">
-                    <h3>Total Hits</h3>
-                    <p style="font-size: 2em; margin: 0;">{len(hits)}</p>
-                </div>
-                <div class="stat-card">
-                    <h3>Genomes</h3>
-                    <p style="font-size: 2em; margin: 0;">{len(unique_genomes)}</p>
-                </div>
-                <div class="stat-card">
-                    <h3>Unique Genes</h3>
-                    <p style="font-size: 2em; margin: 0;">{len(set(hit['gene'] for hit in hits))}</p>
-                </div>
-            </div>
-            <p><strong>Database:</strong> {database.upper()}</p>
-            <p><strong>Date:</strong> {self.metadata['analysis_date']}</p>
-        </div>
-        
-        <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">🔍 Genes by Genome</h2>
-            <table class="gene-table">
-                <thead>
-                    <tr>
-                        <th>Genome</th>
-                        <th>Gene Count</th>
-                        <th>Genes Detected</th>
-                    </tr>
-                </thead>
-                <tbody>
-"""
-        
-        for genome in sorted(unique_genomes):
-            genes = genes_per_genome.get(genome, set())
-            gene_list = ", ".join(sorted(genes))
-            html_content += f"""
-                    <tr class="present">
-                        <td><strong>{genome}</strong></td>
-                        <td>{len(genes)}</td>
-                        <td>{gene_list}</td>
-                    </tr>
-"""
-        
-        html_content += """
-                </tbody>
-            </table>
-        </div>
-        
-        <div class="card">
-            <h2 style="color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">📈 Gene Frequency</h2>
-            <table class="gene-table">
-                <thead>
-                    <tr>
-                        <th>Gene</th>
-                        <th>Frequency</th>
-                        <th>Genomes</th>
-                    </tr>
-                </thead>
-                <tbody>
-"""
-        
-        # Calculate gene frequency
-        gene_frequency = {}
-        for hit in hits:
-            gene = hit['gene']
-            if gene not in gene_frequency:
-                gene_frequency[gene] = set()
-            gene_frequency[gene].add(hit['genome'])
-        
-        for gene, genomes in sorted(gene_frequency.items(), key=lambda x: len(x[1]), reverse=True):
-            genome_list = ", ".join(sorted(genomes))
-            html_content += f"""
-                    <tr>
-                        <td><strong>{gene}</strong></td>
-                        <td>{len(genomes)}</td>
-                        <td>{genome_list}</td>
-                    </tr>
-"""
-        
-        html_content += """
-                </tbody>
-            </table>
-        </div>
-        
-        <div class="footer">
-            <h3 style="color: #fff; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">👥 Contact Information</h3>
-            <p><strong>Author:</strong> Brown Beckley</p>
-            <p><strong>Email:</strong> brownbeckley94@gmail.com</p>
-            <p><strong>GitHub:</strong> <a href="https://github.com/bbeckley-hub" target="_blank">https://github.com/bbeckley-hub</a></p>
-            <p><strong>Affiliation:</strong> University of Ghana Medical School - Department of Medical Biochemistry</p>
-            <p style="margin-top: 20px; font-size: 0.9em; color: #ccc;">
-            </p>
-        </div>
-    </div>
-</body>
-</html>
-"""
-        
-        # Write database summary HTML report
-        html_file = os.path.join(output_base, f"pseudo_{database}_summary_report.html")
-        with open(html_file, 'w') as f:
-            f.write(html_content)
-        
-        self.logger.info("Database summary HTML report: %s", html_file)
-    
-    def process_single_genome(self, genome_file: str, output_base: str = "pseudo_abricate_results") -> Dict[str, Any]:
-        """Process a single P. aeruginosa genome with all databases and HTML reporting"""
         genome_name = Path(genome_file).stem
         results_dir = os.path.join(output_base, genome_name)
-        
         self.logger.info("=== PROCESSING P. AERUGINOSA GENOME: %s ===", genome_name)
-        
-        # Create output directory
         os.makedirs(results_dir, exist_ok=True)
-        
-        databases = self.required_databases
-        
-        # Run ABRicate on all databases
-        results = {}
-        for db in databases:
-            result = self.run_abricate_single_db(genome_file, db, results_dir)
-            results[db] = result
-            status_icon = "✓" if result['status'] == 'success' else "✗"
-            self.logger.info("%s %s: %d hits", status_icon, db, result['hit_count'])
-        
-        # Create comprehensive HTML report
+
+        results: Dict[str, Dict] = {}
+
+        # All raw per-database .txt files live here and vanish on exit
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for db in self.required_databases:
+                result = self.run_abricate_single_db(genome_file, db, temp_dir)
+                results[db] = result
+                icon = "OK" if result['status'] == 'success' else "FAIL"
+                self.logger.info("%s %s: %d hits", icon, db, result['hit_count'])
+
+            # Single merged raw TSV escapes the temp dir
+            self._write_merged_raw_tsv(results, results_dir)
+
+        # Free raw text from memory before building HTML
+        for db_result in results.values():
+            db_result.pop('raw_content', None)
+
+        # Single comprehensive HTML report
         self.create_comprehensive_html_report(genome_name, results, results_dir)
-        
+
         return {
             'genome': genome_name,
             'results': results,
-            'total_hits': sum(r['hit_count'] for r in results.values())
+            'total_hits': sum(r['hit_count'] for r in results.values()),
         }
-    
-    def process_multiple_genomes(self, genome_pattern: str, output_base: str = "pseudo_abricate_results") -> Dict[str, Any]:
-        """Process multiple P. aeruginosa genomes using wildcard pattern - MAXIMUM SPEED"""
-        
-        # Check ABRicate installation
+
+    def process_multiple_genomes(self, genome_pattern: str,
+                                 output_base: str = "pseudo_abricate_results") -> Dict[str, Any]:
         if not self.check_abricate_installed():
             raise RuntimeError("ABRicate not properly installed")
-        
-        # Setup databases
         self.setup_abricate_databases()
-        
-        # Find genome files (support all FASTA extensions)
-        fasta_patterns = [genome_pattern, f"{genome_pattern}.fasta", f"{genome_pattern}.fa", 
-                         f"{genome_pattern}.fna", f"{genome_pattern}.faa"]
-        
+
+        fasta_patterns = [genome_pattern, f"{genome_pattern}.fasta",
+                          f"{genome_pattern}.fa", f"{genome_pattern}.fna",
+                          f"{genome_pattern}.faa"]
         genome_files = []
         for pattern in fasta_patterns:
             genome_files.extend(glob.glob(pattern))
-        
-        # Remove duplicates
         genome_files = list(set(genome_files))
-        
+
         if not genome_files:
             raise FileNotFoundError(f"No FASTA files found matching pattern: {genome_pattern}")
-        
-        self.logger.info("Found %d P. aeruginosa genomes: %s", len(genome_files), [Path(f).name for f in genome_files])
-        
-        # Create output directory
+
+        self.logger.info("Found %d P. aeruginosa genomes: %s",
+                         len(genome_files), [Path(f).name for f in genome_files])
         os.makedirs(output_base, exist_ok=True)
-        
-        # Process genomes with parallel execution - MAXIMUM SPEED CONFIGURATION
-        all_results = {}
-        
+
+        all_results: Dict[str, Any] = {}
         if len(genome_files) > 1 and self.cpus > 1:
-            # Use ThreadPoolExecutor for parallel processing of multiple genomes
-            self.logger.info("Using parallel processing with %d CPU cores (MAXIMUM SPEED)", self.cpus)
-            
+            self.logger.info("Using parallel processing with %d CPU cores", self.cpus)
             with ThreadPoolExecutor(max_workers=self.cpus) as executor:
-                # Submit all genomes for processing
                 future_to_genome = {
-                    executor.submit(self.process_single_genome, genome, output_base): genome 
-                    for genome in genome_files
+                    executor.submit(self.process_single_genome, g, output_base): g
+                    for g in genome_files
                 }
-                
-                # Collect results as they complete
                 for future in as_completed(future_to_genome):
                     genome = future_to_genome[future]
                     try:
                         result = future.result()
                         all_results[Path(genome).stem] = result
-                        self.logger.info("✓ Completed: %s (%d total hits)", result['genome'], result['total_hits'])
+                        self.logger.info("Completed: %s (%d total hits)",
+                                         result['genome'], result['total_hits'])
                     except Exception as e:
-                        self.logger.error("✗ Failed: %s - %s", genome, e)
+                        self.logger.error("Failed: %s - %s", genome, e)
         else:
-            # Process genomes sequentially
             for genome in genome_files:
                 try:
                     result = self.process_single_genome(genome, output_base)
                     all_results[Path(genome).stem] = result
-                    self.logger.info("✓ Completed: %s (%d total hits)", result['genome'], result['total_hits'])
+                    self.logger.info("Completed: %s (%d total hits)",
+                                     result['genome'], result['total_hits'])
                 except Exception as e:
-                    self.logger.error("✗ Failed: %s - %s", genome, e)
-        
-        # Create database summary files and HTML reports after processing all genomes
+                    self.logger.error("Failed: %s - %s", genome, e)
+
         self.create_database_summaries(all_results, output_base)
-        
-        # Create master JSON summary with Excel export
-        master_json_file = self.create_master_json_summary(all_results, output_base)
-        
+        master_json = self.create_master_json_summary(all_results, output_base)
+
         self.logger.info("=== P. AERUGINOSA ANALYSIS COMPLETE ===")
         self.logger.info("Processed %d genomes", len(all_results))
         self.logger.info("Results saved to: %s", output_base)
-        self.logger.info("Master JSON summary: %s", master_json_file)
-        
+        self.logger.info("Master JSON summary: %s", master_json)
         return all_results
 
 
 def main():
     """Command line interface for P. aeruginosa ABRicate analysis"""
     parser = argparse.ArgumentParser(
-        description='PseudoScope ABRicate Analysis - MAXIMUM SPEED VERSION for Pseudomonas aeruginosa',
+        description='PseudoScope ABRicate Analysis - Consolidated Output for Pseudomonas aeruginosa',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run on all P. aeruginosa FASTA files (auto-detect optimal CPU cores - MAXIMUM SPEED)
   python p_abricate.py "*.fna"
-  
-  # Run on specific pattern with auto CPU detection
   python p_abricate.py "PA_*.fasta"
-  
-  # Run with custom output directory and auto CPUs
   python p_abricate.py "*.fa" --output my_pseudo_results
-
-  # Force specific number of CPU cores
   python p_abricate.py "*.fna" --cpus 4
-
-  # Custom thresholds for identity and coverage
   python p_abricate.py "*.fna" --minid 85 --mincov 80
 
-MAXIMUM SPEED RESOURCE MANAGEMENT:
-  • 1-4 cores: Uses ALL CPU cores (100% utilization)
-  • 5-8 cores: Uses (cores-1) for optimal performance  
-  • 9-16 cores: Uses (cores-2) for high performance
-  • 17-32 cores: Uses (cores-4) for maximum throughput
-  • 32+ cores: Uses 85% of cores (capped at 32)
+OUTPUTS (consolidated):
+  Per genome (2 files each):
+    - {genome}_comprehensive_abricate_report.html
+    - abricate_raw.tsv  (all databases merged)
 
-Supported FASTA extensions: .fasta, .fa, .fna, .faa
+  Batch-level:
+    - pseudo_{db}_abricate_summary.tsv     (per database)
+    - pseudo_{db}_summary_report.html      (per database)
+    - pseudo_abricate_master_summary.json  (the ONE summary JSON)
+    - pseudo_abricate_master_summary.xlsx  (optional convenience export)
         """
     )
-    
-    parser.add_argument('pattern', help='File pattern for P. aeruginosa genomes (e.g., "*.fasta", "genomes/*.fna")')
-    parser.add_argument('--cpus', '-c', type=int, default=None, 
-                       help='Number of CPU cores to use (default: auto-detect optimal for MAXIMUM SPEED)')
-    parser.add_argument('--output', '-o', default='pseudo_abricate_results', 
-                       help='Output directory (default: pseudo_abricate_results)')
+    parser.add_argument('pattern', help='File pattern for P. aeruginosa genomes (e.g., "*.fasta")')
+    parser.add_argument('--cpus', '-c', type=int, default=None,
+                        help='Number of CPU cores to use (default: auto-detect)')
+    parser.add_argument('--output', '-o', default='pseudo_abricate_results',
+                        help='Output directory (default: pseudo_abricate_results)')
     parser.add_argument('--minid', type=int, default=80,
-                       help='Minimum percent identity for ABRicate hits (default: 80)')
+                        help='Minimum percent identity (default: 80)')
     parser.add_argument('--mincov', type=int, default=80,
-                       help='Minimum percent coverage for ABRicate hits (default: 80)')
-    
+                        help='Minimum percent coverage (default: 80)')
     args = parser.parse_args()
-    
-    # Print PseudoScope banner
-    print("\n" + "="*80)
+
+    if not 0 <= args.minid <= 100:
+        parser.error("--minid must be between 0 and 100")
+    if not 0 <= args.mincov <= 100:
+        parser.error("--mincov must be between 0 and 100")
+
+    print("\n" + "=" * 80)
     print(r"""
 ██████╗ ███████╗███████╗██╗   ██╗██████╗  ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗
 ██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██╔═══██╗██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
-██████╔╝███████╗█████╗  ██║   ██║██║  ██║██║   ██║███████╗██║     ██║   ██║██████╔╝█████╗  
-██╔═══╝ ╚════██║██╔══╝  ██║   ██║██║  ██║██║   ██║╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝  
+██████╔╝███████╗█████╗  ██║   ██║██║  ██║██║   ██║███████╗██║     ██║   ██║██████╔╝█████╗
+██╔═══╝ ╚════██║██╔══╝  ██║   ██║██║  ██║██║   ██║╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝
 ██║     ███████║███████╗╚██████╔╝██████╔╝╚██████╔╝███████║╚██████╗╚██████╔╝██║     ███████╗
 ╚═╝     ╚══════╝╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝
 """)
-    print("P. aeruginosa ABRicate Analysis - MAXIMUM SPEED VERSION")
-    print("="*80)
-    print(f"Author: Brown Beckley | Email: brownbeckley94@gmail.com")
-    print(f"Affiliation: University of Ghana Medical School - Department of Medical Biochemistry")
-    print("="*80)
-    
+    print("PseudoScope ABRicate - Consolidated Output Version")
+    print("=" * 80)
+
     executor = PseudoAbricateExecutor(cpus=args.cpus, minid=args.minid, mincov=args.mincov)
-    
     try:
         results = executor.process_multiple_genomes(args.pattern, args.output)
-        
-        # Print summary
-        executor.logger.info("\n" + "="*50)
-        executor.logger.info("🧬 PseudoScope ABRicate FINAL SUMMARY")
-        executor.logger.info("="*50)
-        
-        total_critical_carbapenemase = 0
-        total_critical_esbl = 0
-        total_critical_colistin = 0
-        
+
+        executor.logger.info("\n" + "=" * 50)
+        executor.logger.info("PseudoScope ABRicate FINAL SUMMARY")
+        executor.logger.info("=" * 50)
+        total_carb = total_esbl = total_col = 0
         for genome_name, result in results.items():
-            # Collect all hits for this genome
-            all_genome_hits = []
+            all_hits = []
             for db_result in result['results'].values():
-                all_genome_hits.extend(db_result['hits'])
-            
-            # Analyze for this genome
-            analysis = executor.analyze_pseudo_resistance(all_genome_hits)
-            
-            executor.logger.info("✓ %s: %d total hits, %d critical carbapenemase, %d critical ESBL, %d critical colistin", 
-                               genome_name, result['total_hits'], 
-                               len(analysis['critical_carbapenemase_genes']),
-                               len(analysis['critical_esbl_genes']),
-                               len(analysis['critical_colistin_genes']))
-            
-            total_critical_carbapenemase += len(analysis['critical_carbapenemase_genes'])
-            total_critical_esbl += len(analysis['critical_esbl_genes'])
-            total_critical_colistin += len(analysis['critical_colistin_genes'])
-        
-        # Database usage summary
-        executor.logger.info("\n" + "="*50)
-        executor.logger.info("🗃️  DATABASE USAGE SUMMARY")
-        executor.logger.info("="*50)
-        executor.logger.info("Used databases: %s", ", ".join(executor.required_databases))
-        
-        # Summary files
-        executor.logger.info("\n" + "="*50)
-        executor.logger.info("📊 SUMMARY FILES")
-        executor.logger.info("="*50)
-        executor.logger.info("Created per-database summaries:")
-        for db in executor.required_databases:
-            executor.logger.info("  • pseudo_%s_summary.[tsv|json|html]", db)
-        executor.logger.info("Created master summaries:")
-        executor.logger.info("  • pseudo_abricate_master_summary.json")
-        executor.logger.info("  • pseudo_abricate_master_summary.xlsx (Excel)")
-        
-        # Performance summary
-        executor.logger.info("\n" + "="*50)
-        executor.logger.info("⚡ MAXIMUM SPEED PERFORMANCE SUMMARY")
-        executor.logger.info("="*50)
-        executor.logger.info("CPU cores utilized: %d cores", executor.cpus)
-        executor.logger.info("Available RAM: %.1f GB", executor.available_ram)
-        executor.logger.info("Total P. aeruginosa genomes processed: %d", len(results))
-        executor.logger.info("Total critical carbapenemase genes found: %d", total_critical_carbapenemase)
-        executor.logger.info("Total critical ESBL genes found: %d", total_critical_esbl)
-        executor.logger.info("Total critical colistin resistance genes found: %d", total_critical_colistin)
-        executor.logger.info("Processing mode: MAXIMUM SPEED 🚀")
-        
-        import random
-        executor.logger.info("\n💡 %s", random.choice(executor.science_quotes))
-        
-        # Output directory structure
-        executor.logger.info("\n" + "="*50)
-        executor.logger.info("📁 OUTPUT STRUCTURE")
-        executor.logger.info("="*50)
+                all_hits.extend(db_result['hits'])
+            a = executor.analyze_pseudo_resistance(all_hits)
+            executor.logger.info(
+                "%s: %d hits | Carb=%d ESBL=%d Colistin=%d",
+                genome_name, result['total_hits'],
+                len(a['critical_carbapenemase_genes']),
+                len(a['critical_esbl_genes']),
+                len(a['critical_colistin_genes']),
+            )
+            total_carb += len(a['critical_carbapenemase_genes'])
+            total_esbl += len(a['critical_esbl_genes'])
+            total_col += len(a['critical_colistin_genes'])
+
+        executor.logger.info("\n" + "=" * 50)
+        executor.logger.info("CONSOLIDATED OUTPUT STRUCTURE")
+        executor.logger.info("=" * 50)
         executor.logger.info("%s/", args.output)
         executor.logger.info("├── [SAMPLE_DIRECTORIES]/")
-        executor.logger.info("│   ├── abricate_*.txt           # Raw ABRicate outputs")
-        executor.logger.info("│   ├── abricate_*_report.html   # Individual database reports")
+        executor.logger.info("│   ├── abricate_raw.tsv                       (all DBs merged)")
         executor.logger.info("│   └── [SAMPLE]_comprehensive_abricate_report.html")
-        executor.logger.info("├── pseudo_*_abricate_summary.tsv   # Per-database TSV summaries")
-        executor.logger.info("├── pseudo_*_summary.json           # Per-database JSON summaries")
-        executor.logger.info("├── pseudo_*_summary_report.html    # Per-database HTML summaries")
-        executor.logger.info("├── pseudo_abricate_master_summary.json")
-        executor.logger.info("└── pseudo_abricate_master_summary.xlsx")
-        
+        executor.logger.info("├── pseudo_*_abricate_summary.tsv              (per DB)")
+        executor.logger.info("├── pseudo_*_summary_report.html               (per DB)")
+        executor.logger.info("└── pseudo_abricate_master_summary.json        (ONE summary JSON)")
+        executor.logger.info("    pseudo_abricate_master_summary.xlsx        (optional)")
+
+        executor.logger.info("\n" + "=" * 50)
+        executor.logger.info("PERFORMANCE SUMMARY")
+        executor.logger.info("=" * 50)
+        executor.logger.info("CPU cores utilized: %d", executor.cpus)
+        executor.logger.info("Available RAM: %.1f GB", executor.available_ram)
+        executor.logger.info("Genomes processed: %d", len(results))
+        executor.logger.info("Total critical carbapenemase genes: %d", total_carb)
+        executor.logger.info("Total critical ESBL genes: %d", total_esbl)
+        executor.logger.info("Total critical colistin genes: %d", total_col)
+
+        executor.logger.info("\n%s", random.choice(executor.science_quotes))
+
     except Exception as e:
         executor.logger.error("P. aeruginosa analysis failed: %s", e)
         sys.exit(1)

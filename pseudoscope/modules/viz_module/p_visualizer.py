@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 PseudoScope Comprehensive Visualizer
-================================================================================
+=================================================================================
 Generates a rich, vertically-scrolling HTML dashboard with:
 - ST distribution (bar chart)
 - O‑type distribution (bar chart)
@@ -16,9 +16,9 @@ All plots are interactive, include scientific explanations, and use varied color
 
 Author: Brown Beckley <brownbeckley94@gmail.com>
 Affiliation: University of Ghana Medical School
-Version: 1.0.0
-Date: 2026-04-22 updated 2026-07-25
-================================================================================
+Version: 1.0.1
+Date: 2026-04-22 updated 2026-10-02
+=================================================================================
 """
 
 import os
@@ -41,6 +41,15 @@ warnings.filterwarnings('ignore')
 # Helper functions
 # =============================================================================
 
+def _get_st_column(df):
+    """Return the name of the ST column in df, or None if not present.
+    Accepts 'ST' or 'MLST' (case-insensitive on either name)."""
+    for candidate in ('ST', 'st', 'MLST', 'mlst'):
+        if candidate in df.columns:
+            return candidate
+    return None
+
+
 def parse_qc_from_tsv(tsv_path):
     """Extract QC metrics from TSV file."""
     df = pd.read_csv(tsv_path, sep='\t')
@@ -56,6 +65,7 @@ def parse_qc_from_tsv(tsv_path):
             df[col] = pd.to_numeric(df[col], errors='coerce')
     return df
 
+
 def load_sample_overview(csv_path):
     """Load sample overview (ST, O‑type)."""
     df = pd.read_csv(csv_path)
@@ -63,9 +73,20 @@ def load_sample_overview(csv_path):
         df.rename(columns={df.columns[0]: 'Sample'}, inplace=True)
     return df
 
+
 def plot_st_distribution(df):
-    """Bar chart of ST counts."""
-    st_counts = df['ST'].value_counts().reset_index()
+    """Bar chart of ST counts. Accepts either 'ST' or 'MLST' column."""
+    col = _get_st_column(df)
+    if col is None:
+        print("Skipping ST plot: no 'ST' or 'MLST' column in sample_overview.csv")
+        return None
+
+    st_series = df[col].dropna().astype(str).str.strip()
+    st_series = st_series[st_series != '']
+    if st_series.empty:
+        return None
+
+    st_counts = st_series.value_counts().reset_index()
     st_counts.columns = ['ST', 'Count']
     fig = px.bar(st_counts, x='ST', y='Count', title='Sequence Type (ST) Distribution',
                  labels={'Count': 'Number of genomes', 'ST': 'ST'},
@@ -73,9 +94,19 @@ def plot_st_distribution(df):
     fig.update_layout(xaxis_tickangle=-45, height=500)
     return fig
 
+
 def plot_otype_distribution(df):
     """Bar chart of O‑type counts."""
-    o_counts = df['O_Type'].value_counts().reset_index()
+    if 'O_Type' not in df.columns:
+        print("Skipping O-type plot: no 'O_Type' column in sample_overview.csv")
+        return None
+
+    o_series = df['O_Type'].dropna().astype(str).str.strip()
+    o_series = o_series[o_series != '']
+    if o_series.empty:
+        return None
+
+    o_counts = o_series.value_counts().reset_index()
     o_counts.columns = ['O_Type', 'Count']
     fig = px.bar(o_counts, x='O_Type', y='Count', title='O‑Serotype Distribution',
                  labels={'Count': 'Number of genomes', 'O_Type': 'O‑type'},
@@ -83,22 +114,30 @@ def plot_otype_distribution(df):
     fig.update_layout(xaxis_tickangle=-45, height=500)
     return fig
 
+
 def plot_top_genes_stacked(csv_path, title, top_n=50, color_seq=None):
     """Stacked bar chart of top genes by database."""
     if not csv_path.exists():
         return None
     df = pd.read_csv(csv_path)
+    if df.empty or 'Gene' not in df.columns or 'Count' not in df.columns:
+        return None
     # Sum counts per gene to get top N
     gene_total = df.groupby('Gene')['Count'].sum().nlargest(top_n).index
     df_top = df[df['Gene'].isin(gene_total)]
+    if df_top.empty:
+        return None
     # Use a visible qualitative palette
     if color_seq is None:
         color_seq = px.colors.qualitative.Set1 + px.colors.qualitative.Dark2
-    fig = px.bar(df_top, x='Gene', y='Count', color='Database', title=title,
+    # If no Database column, use a single color
+    color_arg = 'Database' if 'Database' in df_top.columns else None
+    fig = px.bar(df_top, x='Gene', y='Count', color=color_arg, title=title,
                  labels={'Count': 'Number of genomes', 'Gene': 'Gene'},
                  barmode='stack', color_discrete_sequence=color_seq)
     fig.update_layout(xaxis_tickangle=-45, height=550, legend_title='Database')
     return fig
+
 
 def build_network_from_cooccurrence(csv_path, top_edges=100):
     """Build network graph from gene_cooccurrence.csv."""
@@ -106,14 +145,19 @@ def build_network_from_cooccurrence(csv_path, top_edges=100):
     if 'Gene1' not in df.columns or 'Gene2' not in df.columns:
         if 'Gene 1' in df.columns:
             df.rename(columns={'Gene 1': 'Gene1', 'Gene 2': 'Gene2'}, inplace=True)
+    if 'Gene1' not in df.columns or 'Gene2' not in df.columns:
+        return None
     df_top = df.nlargest(top_edges, 'Count')
     G = nx.Graph()
     for _, row in df_top.iterrows():
         G.add_edge(row['Gene1'], row['Gene2'], weight=row['Count'])
     return G
 
+
 def plot_network(G):
     """Interactive network plot."""
+    if G is None or G.number_of_nodes() == 0:
+        return None
     pos = nx.spring_layout(G, k=2, iterations=50, seed=42)
     edge_x, edge_y = [], []
     for u, v in G.edges():
@@ -128,7 +172,7 @@ def plot_network(G):
     edge_trace = go.Scatter(x=edge_x, y=edge_y, mode='lines',
                             line=dict(width=0.8, color='lightgray'), hoverinfo='none')
     node_trace = go.Scatter(x=node_x, y=node_y, mode='markers+text',
-                            marker=dict(size=[8 + d*1.5 for d in node_degree],
+                            marker=dict(size=[8 + d * 1.5 for d in node_degree],
                                         color='#8B4513', line=dict(width=1, color='white')),
                             text=[n[:12] for n in G.nodes()], textposition='top center',
                             hovertext=hover_text, hoverinfo='text')
@@ -137,6 +181,7 @@ def plot_network(G):
                       showlegend=False, xaxis_visible=False, yaxis_visible=False,
                       plot_bgcolor='white', height=700)
     return fig
+
 
 def plot_qc_boxplots_with_points(qc_df):
     """Four separate box plots with all points (jitter) and outliers."""
@@ -166,6 +211,7 @@ def plot_qc_boxplots_with_points(qc_df):
                       showlegend=False)
     return fig
 
+
 def plot_pca(amr_csv, vir_csv, sample_df):
     """PCA of gene presence/absence (AMR + virulence) colored by ST."""
     # Check for at least 2 samples
@@ -174,17 +220,30 @@ def plot_pca(amr_csv, vir_csv, sample_df):
         return None
     if not amr_csv.exists() or not vir_csv.exists():
         return None
+
+    st_col = _get_st_column(sample_df)
+    if st_col is None:
+        print("Skipping PCA: no ST/MLST column.")
+        return None
+
     amr = pd.read_csv(amr_csv)
     vir = pd.read_csv(vir_csv)
+    if amr.empty and vir.empty:
+        return None
+    if 'Gene' not in amr.columns or 'Gene' not in vir.columns:
+        return None
+    if 'Genomes' not in amr.columns or 'Genomes' not in vir.columns:
+        return None
+
     all_genes = set(amr['Gene'].unique()) | set(vir['Gene'].unique())
     samples = sample_df['Sample'].tolist()
     sample_genes = {s: set() for s in samples}
     for _, row in amr.iterrows():
-        for s in row['Genomes'].split(';'):
+        for s in str(row['Genomes']).split(';'):
             if s in sample_genes:
                 sample_genes[s].add(row['Gene'])
     for _, row in vir.iterrows():
-        for s in row['Genomes'].split(';'):
+        for s in str(row['Genomes']).split(';'):
             if s in sample_genes:
                 sample_genes[s].add(row['Gene'])
     gene_list = list(all_genes)
@@ -198,11 +257,14 @@ def plot_pca(amr_csv, vir_csv, sample_df):
     pca = PCA(n_components=2, random_state=42)
     scaled = StandardScaler(with_mean=False).fit_transform(matrix)
     pca_result = pca.fit_transform(scaled)
-    pca_df = pd.DataFrame({'PC1': pca_result[:,0], 'PC2': pca_result[:,1],
+    pca_df = pd.DataFrame({'PC1': pca_result[:, 0], 'PC2': pca_result[:, 1],
                            'Sample': samples})
-    pca_df = pca_df.merge(sample_df[['Sample', 'ST']], on='Sample', how='left')
+    pca_df = pca_df.merge(
+        sample_df[['Sample', st_col]].rename(columns={st_col: 'ST'}),
+        on='Sample', how='left'
+    )
     fig = px.scatter(pca_df, x='PC1', y='PC2', color='ST',
-                     title=f'PCA of Gene Presence/Absence (AMR+Virulence)',
+                     title='PCA of Gene Presence/Absence (AMR+Virulence)',
                      labels={'PC1': f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)',
                              'PC2': f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)'},
                      hover_data=['Sample'],
@@ -211,29 +273,32 @@ def plot_pca(amr_csv, vir_csv, sample_df):
     fig.update_layout(height=600)
     return fig
 
+
 def plot_cooccurrence_heatmap(amr_csv, top_n=30):
     """Co‑occurrence heatmap of top AMR genes."""
     if not amr_csv.exists():
         return None
     amr = pd.read_csv(amr_csv)
+    if amr.empty or 'Gene' not in amr.columns or 'Count' not in amr.columns or 'Genomes' not in amr.columns:
+        return None
     top_genes = amr.groupby('Gene')['Count'].sum().nlargest(top_n).index.tolist()
     if len(top_genes) < 2:
         return None
     n = len(top_genes)
     cooc = np.zeros((n, n), dtype=int)
-    gene_to_idx = {g:i for i,g in enumerate(top_genes)}
+    gene_to_idx = {g: i for i, g in enumerate(top_genes)}
     genome_genes = {}
     for _, row in amr.iterrows():
         if row['Gene'] not in top_genes:
             continue
-        for genome in row['Genomes'].split(';'):
+        for genome in str(row['Genomes']).split(';'):
             if genome not in genome_genes:
                 genome_genes[genome] = set()
             genome_genes[genome].add(row['Gene'])
     for genes in genome_genes.values():
         gene_list = [g for g in genes if g in top_genes]
         for i, g1 in enumerate(gene_list):
-            for g2 in gene_list[i+1:]:
+            for g2 in gene_list[i + 1:]:
                 cooc[gene_to_idx[g1], gene_to_idx[g2]] += 1
                 cooc[gene_to_idx[g2], gene_to_idx[g1]] += 1
     fig = px.imshow(cooc, x=top_genes, y=top_genes, text_auto=True,
@@ -241,6 +306,7 @@ def plot_cooccurrence_heatmap(amr_csv, top_n=30):
                     color_continuous_scale='RdBu', aspect='auto')
     fig.update_layout(height=700, xaxis_tickangle=-45)
     return fig
+
 
 # =============================================================================
 # Main
@@ -289,7 +355,7 @@ def main():
     print("Building co‑occurrence network (top 100 edges)...")
     if cooc_csv.exists():
         G = build_network_from_cooccurrence(cooc_csv, top_edges=100)
-        fig_network = plot_network(G)
+        fig_network = plot_network(G) if G is not None else None
     else:
         fig_network = None
 
@@ -299,6 +365,7 @@ def main():
     elif qc_html.exists():
         # Fallback to HTML parser (simpler to use TSV, but keeping for compatibility)
         from bs4 import BeautifulSoup
+
         def parse_qc_from_html_fallback(html_path):
             with open(html_path, 'r', encoding='utf-8') as f:
                 soup = BeautifulSoup(f.read(), 'html.parser')
@@ -321,7 +388,7 @@ def main():
             if 'Filename' in df.columns:
                 df['Sample'] = df['Filename'].apply(lambda x: Path(x).stem)
             else:
-                df['Sample'] = df.iloc[:,0].apply(lambda x: Path(x).stem)
+                df['Sample'] = df.iloc[:, 0].apply(lambda x: Path(x).stem)
             keep = ['Sample', 'GC Content (%)', 'AT Content (%)', 'N50', 'Total Length']
             existing = [c for c in keep if c in df.columns]
             df = df[existing]
@@ -329,6 +396,7 @@ def main():
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
             return df
+
         qc_df = parse_qc_from_html_fallback(qc_html)
     else:
         qc_df = pd.DataFrame()
@@ -344,12 +412,13 @@ def main():
     print("Creating co‑occurrence heatmap (top 30 AMR genes)...")
     fig_heatmap = plot_cooccurrence_heatmap(amr_csv, top_n=30)
 
-    # Count total samples
+    # Count total samples and summary stats
     total_samples = len(sample_df)
-    st_count = sample_df['ST'].nunique()
-    o_count = sample_df['O_Type'].nunique()
-    amr_total = len(pd.read_csv(amr_csv)['Gene'].unique()) if amr_csv.exists() else 0
-    vir_total = len(pd.read_csv(vir_csv)['Gene'].unique()) if vir_csv.exists() else 0
+    st_col = _get_st_column(sample_df)
+    st_count = sample_df[st_col].nunique() if st_col else 0
+    o_count = sample_df['O_Type'].nunique() if 'O_Type' in sample_df.columns else 0
+    amr_total = len(pd.read_csv(amr_csv)['Gene'].unique()) if (amr_csv.exists() and 'Gene' in pd.read_csv(amr_csv).columns) else 0
+    vir_total = len(pd.read_csv(vir_csv)['Gene'].unique()) if (vir_csv.exists() and 'Gene' in pd.read_csv(vir_csv).columns) else 0
 
     # Assemble HTML (vertical scrolling, clean header/footer)
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -371,6 +440,7 @@ def main():
             .footer {{ text-align: center; padding: 15px; margin-top: 50px; background: linear-gradient(135deg, #5C2E0B, #8B4513); color: white; border-radius: 12px; font-size: 0.85em; }}
             .footer a {{ color: #ffd700; text-decoration: none; }}
             .footer a:hover {{ text-decoration: underline; }}
+            .missing {{ color: #8B4513; font-style: italic; padding: 10px; background: #fff8e1; border-radius: 6px; }}
         </style>
         <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     </head>
@@ -393,57 +463,75 @@ def main():
     # Section: Typing
     html_parts.append("<h2>📊 MLST & Serotype Distribution</h2>")
     html_parts.append('<div class="explanation"><strong>ST and O‑type prevalence</strong> – Bars show the number of genomes per Sequence Type (Pasteur scheme) and O‑serotype. Hover for exact counts.</div>')
-    html_parts.append(fig_st.to_html(full_html=False, include_plotlyjs='cdn'))
-    html_parts.append(fig_otype.to_html(full_html=False, include_plotlyjs='cdn'))
+    if fig_st is not None:
+        html_parts.append(fig_st.to_html(full_html=False, include_plotlyjs='cdn'))
+    else:
+        html_parts.append('<p class="missing">ST plot not available.</p>')
+    if fig_otype is not None:
+        html_parts.append(fig_otype.to_html(full_html=False, include_plotlyjs='cdn'))
+    else:
+        html_parts.append('<p class="missing">O‑type plot not available.</p>')
 
     # Section: Top Genes
     html_parts.append("<h2>💊 Top AMR & Virulence Genes</h2>")
     html_parts.append('<div class="explanation"><strong>Stacked bar charts</strong> – Each bar represents a gene; segments show contributions from different databases (AMRfinder, NCBI, CARD, ResFinder, etc.). Only the top 50 most prevalent genes are shown (adjustable in script).</div>')
-    if fig_amr_stack:
+    if fig_amr_stack is not None:
         html_parts.append(fig_amr_stack.to_html(full_html=False, include_plotlyjs='cdn'))
-    if fig_vir_stack:
+    else:
+        html_parts.append('<p class="missing">AMR gene chart not available.</p>')
+    if fig_vir_stack is not None:
         html_parts.append(fig_vir_stack.to_html(full_html=False, include_plotlyjs='cdn'))
+    else:
+        html_parts.append('<p class="missing">Virulence gene chart not available.</p>')
 
     # Section: Co‑occurrence Network
     html_parts.append("<h2>🔗 Gene Co‑occurrence Network</h2>")
     html_parts.append('<div class="explanation"><strong>Network of gene co‑occurrence</strong> – Nodes are genes; edges connect genes that appear together in at least one genome. Edge count is based on the top 100 co‑occurrence pairs. Node size reflects degree (number of connections). Hover for details.</div>')
-    if fig_network:
+    if fig_network is not None:
         html_parts.append(fig_network.to_html(full_html=False, include_plotlyjs='cdn'))
     else:
-        html_parts.append("<p>Co‑occurrence network data not available.</p>")
+        html_parts.append('<p class="missing">Co‑occurrence network data not available.</p>')
 
     # Section: QC Box Plots
     html_parts.append("<h2>📈 FASTA Assembly Quality</h2>")
     html_parts.append('<div class="explanation"><strong>QC metrics distribution</strong> – Each box plot shows the spread of GC%, AT%, N50 (contiguity), and total assembly length. All individual data points are shown as dots (jittered). N50 and Total Length are on a log scale.</div>')
-    if fig_qc:
+    if fig_qc is not None:
         html_parts.append(fig_qc.to_html(full_html=False, include_plotlyjs='cdn'))
     else:
-        html_parts.append("<p>QC data not found. Please ensure PseudoScope_FASTA_QC_summary.tsv is present.</p>")
+        html_parts.append('<p class="missing">QC data not found. Please ensure PseudoScope_FASTA_QC_summary.tsv is present.</p>')
 
     # Section: PCA
     html_parts.append("<h2>📐 Principal Component Analysis (PCA)</h2>")
     html_parts.append('<div class="explanation"><strong>Gene presence/absence PCA</strong> – Each point is a genome, colored by ST. The plot reduces the high‑dimensional gene profile to two principal components. Clusters indicate similar resistance/virulence gene complements.</div>')
-    if fig_pca:
+    if fig_pca is not None:
         html_parts.append(fig_pca.to_html(full_html=False, include_plotlyjs='cdn'))
     else:
-        html_parts.append("<p>⚠️ PCA plot not available (need at least 2 samples or insufficient gene data).</p>")
+        html_parts.append('<p class="missing">PCA plot not available (need at least 2 samples or insufficient gene data).</p>')
 
     # Section: Co‑occurrence Heatmap
     html_parts.append("<h2>🔥 AMR Gene Co‑occurrence Heatmap</h2>")
     html_parts.append('<div class="explanation"><strong>Pairwise co‑occurrence counts</strong> – Darker red indicates that two AMR genes appear together more often. Helps identify linked resistance determinants. Shown for top 30 AMR genes.</div>')
-    if fig_heatmap:
+    if fig_heatmap is not None:
         html_parts.append(fig_heatmap.to_html(full_html=False, include_plotlyjs='cdn'))
     else:
-        html_parts.append("<p>Heatmap not available (insufficient AMR genes).</p>")
+        html_parts.append('<p class="missing">Heatmap not available (insufficient AMR genes).</p>')
 
     # Footer (brown gradient)
     html_parts.append(f"""
         <div class="footer">
-            <strong>PseudoScope Comprehensive Dashboard v1.0.0</strong><br>
-            University of Ghana Medical School | Department of Medical Biochemistry<br>
-            Author: Brown Beckley &lt;brownbeckley94@gmail.com&gt; | GitHub: <a href="https://github.com/bbeckley-hub/pseudoscope" target="_blank">bbeckley-hub/pseudoscope</a><br>
-            Generated on {now}
-        </div>
+<p><strong>PSEUDOSCOPE</strong> - Interactive Visualization Dashboard</p>
+<p class="timestamp">Generated by PseudoScope</p>
+<div class="authorship">
+<p><strong>Technical Support &amp; Inquiries:</strong></p>
+<p>Maintainer: Brown Beckley</p>
+<p>GitHub: <a href="https://github.com/bbeckley-hub" style="color:#E8C39E;">bbeckley-hub</a></p>
+<p>Email: <a href="mailto:brownbeckley94@gmail.com" style="color:#E8C39E;">brownbeckley94@gmail.com</a></p>
+<p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
+<p style="margin-top:10px;font-size:11px;opacity:0.8;">
+Powered by the PseudoScope visualization engine
+</p>
+</div>
+</div>
     </div>
     </body>
     </html>
@@ -455,6 +543,7 @@ def main():
 
     print(f"✅ Dashboard saved: {output_path}")
     print("Open the file in your browser to explore all interactive plots.")
+
 
 if __name__ == "__main__":
     main()

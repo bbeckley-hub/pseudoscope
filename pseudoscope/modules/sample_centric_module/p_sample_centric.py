@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-GENIUS PSEUDOMONAS AERUGINOSA SAMPLE-CENTRIC REPORTER (v1.0.0)
+PSEUDOSCOPE ULTIMATE SAMPLE-CENTRIC REPORTER (v3.0.0)
 ================================================================================
-Hybrid reporter for P. aeruginosa genomic data.
-- MLST and serotype parsing from HTML (only)
-- AMR, Virulence, Plasmid, Bacmet, and Mutation data loaded strictly from TSV summaries
-  with prefix "pseudo_"
-- Gene‑centric tables with dynamic grouping by ST, O‑type, or ST‑O
-- Sample‑centric interactive boxes for each isolate (AMR, Virulence, BACMET, Plasmids, Mutations)
-- Educational content, filter buttons, and export capabilities
-- Corrected citations for PAST serotyping and pasty wrapper
+Hybrid gene-centric + sample-centric reporter for P. aeruginosa genomic data.
+
+- Sample Overview tab shows all typing on one row per isolate.
+- Sample-centric isolate boxes (lazy-loaded) for AMR, Virulence, Plasmids,
+  Bacmet2, Mutations, and MGE. Each box loads its tables on click; browser
+  stays responsive on 1000+ samples.
+- Dashboard shows 5 KPI cards: Total Samples, AMR Genes, Virulence Genes,
+  Mutations, MGE Hits.
+- Supports PseudoScope brown palette; GitHub star CTA in footer.
 
 Author: Brown Beckley <brownbeckley94@gmail.com>
 Affiliation: University of Ghana Medical School, Department of Medical Biochemistry
-Version: 1.0.0
-Date: 2026-07-24
+Version: 3.0.0
 License: MIT
 ================================================================================
 """
@@ -23,6 +23,7 @@ import os
 import sys
 import json
 import re
+import io
 import argparse
 import pandas as pd
 import numpy as np
@@ -36,22 +37,40 @@ warnings.filterwarnings('ignore')
 from bs4 import BeautifulSoup
 
 
+def esc(v) -> str:
+    if v is None:
+        return ""
+    return (str(v).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+# =============================================================================
+# PARSER
+# =============================================================================
 class PseudomonasHTMLParser:
-    """
-    Parses HTML reports from PseudoScope pipeline for MLST and serotype.
-    Loads TSV summaries for AMRfinder, ABRicate, and mutations.
-    TSV files are expected to have the prefix "pseudo_".
-    """
+    """Parses PseudoScope MLST/PAST/QC HTML and pseudo_* TSV summaries."""
 
     def __init__(self):
         self.abricate_databases = [
             'ncbi', 'card', 'resfinder', 'vfdb', 'argannot',
             'plasmidfinder', 'megares', 'ecoli_vf', 'bacmet2'
         ]
+        self.abricate_tsv_files = {
+            'ncbi': 'pseudo_ncbi_abricate_summary.tsv',
+            'card': 'pseudo_card_abricate_summary.tsv',
+            'resfinder': 'pseudo_resfinder_abricate_summary.tsv',
+            'vfdb': 'pseudo_vfdb_abricate_summary.tsv',
+            'argannot': 'pseudo_argannot_abricate_summary.tsv',
+            'plasmidfinder': 'pseudo_plasmidfinder_abricate_summary.tsv',
+            'megares': 'pseudo_megares_abricate_summary.tsv',
+            'ecoli_vf': 'pseudo_ecoli_vf_abricate_summary.tsv',
+            'bacmet2': 'pseudo_bacmet2_abricate_summary.tsv',
+        }
 
     def normalize_sample_id(self, sample_id: str) -> str:
         sample = str(sample_id)
-        for ext in ['.fna', '.fasta', '.fa', '.gb', '.gbk', '.gbff', '.txt', '.tsv', '.csv']:
+        for ext in ('.fna', '.fasta', '.fa', '.gb', '.gbk', '.gbff',
+                    '.txt', '.tsv', '.csv'):
             if sample.endswith(ext):
                 sample = sample[:-len(ext)]
         if '/' in sample or '\\' in sample:
@@ -66,90 +85,145 @@ class PseudomonasHTMLParser:
             st_str = 'ST' + st_str
         return st_str
 
+    # ------------------------------------------------------------------
+    # TSV loaders
+    # ------------------------------------------------------------------
     def load_amrfinder_from_tsv(self, input_dir: Path) -> Tuple[Dict[str, List[Dict]], Dict[str, int]]:
-        tsv_path = input_dir / 'pseudo_amrfinder_summary.tsv'
-        if not tsv_path.exists():
-            print(f"  ⚠️ AMRfinder TSV not found: {tsv_path}")
+        path = input_dir / 'pseudo_amrfinder_summary.tsv'
+        if not path.exists():
+            print(f"  ⚠️ AMRfinder TSV not found: {path.name}")
             return {}, {}
-        df = pd.read_csv(tsv_path, sep='\t')
-        amr_details = defaultdict(list)
+        try:
+            df = pd.read_csv(path, sep='\t')
+        except Exception as e:
+            print(f"  ❌ Failed to read AMRfinder TSV: {e}")
+            return {}, {}
+        sample_col = 'Genome' if 'Genome' in df.columns else df.columns[0]
+        details = defaultdict(list)
         gene_counts = Counter()
-        sample_col = 'Genome' if 'Genome' in df.columns else 'sample'
-        if sample_col not in df.columns:
-            sample_col = df.columns[0]
         for _, row in df.iterrows():
-            sample = str(row[sample_col])
-            sample = self.normalize_sample_id(sample)
-            gene_dict = row.to_dict()
-            gene_dict = {k: (None if pd.isna(v) else v) for k, v in gene_dict.items()}
-            if 'Gene_Symbol' in gene_dict:
-                gene_dict['gene'] = gene_dict.pop('Gene_Symbol')
-            elif 'Element_symbol' in gene_dict:
-                gene_dict['gene'] = gene_dict.pop('Element_symbol')
-            elif 'Element symbol' in gene_dict:
-                gene_dict['gene'] = gene_dict.pop('Element symbol')
-            elif 'gene' not in gene_dict:
+            sample = self.normalize_sample_id(row[sample_col])
+            g = {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
+            for key in ('Gene_Symbol', 'Element_symbol', 'Element symbol', 'gene'):
+                if key in g:
+                    g['gene'] = g.pop(key)
+                    break
+            else:
                 for col in df.columns:
                     if 'gene' in col.lower():
-                        gene_dict['gene'] = gene_dict.pop(col)
+                        g['gene'] = g.pop(col)
                         break
-            amr_details[sample].append(gene_dict)
-            gene = gene_dict.get('gene', 'unknown')
-            gene_counts[gene] += 1
-        return dict(amr_details), dict(gene_counts)
+            details[sample].append(g)
+            gene_counts[g.get('gene', 'unknown')] += 1
+        print(f"  ✅ Loaded AMRfinder TSV: {len(details)} samples, {sum(gene_counts.values())} hits")
+        return dict(details), dict(gene_counts)
 
     def load_abricate_from_tsv(self, input_dir: Path) -> Tuple[Dict[str, Dict[str, List[Dict]]], Dict[str, Dict[str, int]]]:
-        abricate_details = defaultdict(lambda: defaultdict(list))
-        abricate_gene_counts = defaultdict(lambda: defaultdict(int))
-        for db in self.abricate_databases:
-            fname = f"pseudo_{db}_abricate_summary.tsv"
+        details = defaultdict(lambda: defaultdict(list))
+        counts = defaultdict(lambda: defaultdict(int))
+        for db, fname in self.abricate_tsv_files.items():
             path = input_dir / fname
             if not path.exists():
                 continue
-            df = pd.read_csv(path, sep='\t')
-            sample_col = 'genome' if 'genome' in df.columns else 'file'
-            if sample_col not in df.columns:
-                sample_col = df.columns[0]
+            try:
+                df = pd.read_csv(path, sep='\t')
+            except Exception:
+                continue
+            sample_col = ('genome' if 'genome' in df.columns
+                          else 'file' if 'file' in df.columns
+                          else df.columns[0])
             for _, row in df.iterrows():
-                sample = str(row[sample_col])
-                sample = self.normalize_sample_id(sample)
-                gene_dict = row.to_dict()
-                gene_dict = {k: (None if pd.isna(v) else v) for k, v in gene_dict.items()}
-                abricate_details[sample][db].append(gene_dict)
-                gene = row['gene']
-                abricate_gene_counts[db][gene] += 1
-        return dict(abricate_details), dict(abricate_gene_counts)
+                sample = self.normalize_sample_id(row[sample_col])
+                g = {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
+                details[sample][db].append(g)
+                gene = row.get('gene', 'unknown')
+                counts[db][gene] += 1
+        print(f"  ✅ Loaded ABRicate TSVs: {len(details)} samples across {len(counts)} databases")
+        return dict(details), dict(counts)
 
     def load_mutations_from_tsv(self, input_dir: Path) -> Dict[str, List[Dict]]:
-        tsv_path = input_dir / 'mutation_summary.tsv'  
-        if not tsv_path.exists():
-            print(f"  ⚠️ Mutation TSV not found: {tsv_path}")
+        path = input_dir / 'mutation_summary.tsv'
+        if not path.exists():
+            print(f"  ⚠️ Mutation TSV not found: {path.name}")
             return {}
-        df = pd.read_csv(tsv_path, sep='\t')
-        mutations_by_sample = defaultdict(list)
+        try:
+            df = pd.read_csv(path, sep='\t')
+        except Exception as e:
+            print(f"  ❌ Failed to read mutation TSV: {e}")
+            return {}
+        by_sample = defaultdict(list)
         for _, row in df.iterrows():
-            sample = str(row['genome'])
-            sample = self.normalize_sample_id(sample)
-            def clean_val(v):
-                if pd.isna(v):
-                    return ''
-                return str(v)
-            mut_dict = {
-                'gene': clean_val(row.get('gene_symbol', '')),
-                'mutation': clean_val(row.get('element_name', '')),
-                'class': clean_val(row.get('class', '')),
-                'subclass': clean_val(row.get('subclass', '')),
-                'contig': clean_val(row.get('contig_id', '')),
-                'start': clean_val(row.get('start', '')),
-                'stop': clean_val(row.get('stop', '')),
-                'strand': clean_val(row.get('strand', '')),
-                'coverage': clean_val(row.get('coverage', '')),
-                'identity': clean_val(row.get('identity', '')),
-                'accession': clean_val(row.get('accession', ''))
-            }
-            mutations_by_sample[sample].append(mut_dict)
-        return dict(mutations_by_sample)
+            sample = self.normalize_sample_id(row.get('genome', ''))
+            if not sample:
+                continue
 
+            def clean(v):
+                return '' if pd.isna(v) else str(v)
+
+            by_sample[sample].append({
+                'gene':      clean(row.get('gene_symbol', '')),
+                'mutation':  clean(row.get('element_name', '')),
+                'class':     clean(row.get('class', '')),
+                'contig':    clean(row.get('contig_id', '')),
+                'start':     clean(row.get('start', '')),
+                'stop':      clean(row.get('stop', '')),
+                'strand':    clean(row.get('strand', '')),
+                'coverage':  clean(row.get('coverage', '')),
+                'identity':  clean(row.get('identity', '')),
+                'accession': clean(row.get('accession', '')),
+            })
+        print(f"  ✅ Loaded mutations TSV: {len(by_sample)} samples")
+        return dict(by_sample)
+
+    def load_mge_from_tsv(self, input_dir: Path) -> Dict[str, List[Dict]]:
+        """Load per-sample mobileOG-db hits from pseudoscope_mge_hits.tsv."""
+        candidates = ['pseudoscope_mge_hits.tsv', 'pseudo_mge_hits.tsv',
+                      'pseudoscope_mge_all_hits.tsv']
+        path = None
+        for cand in candidates:
+            p = input_dir / cand
+            if p.exists():
+                path = p
+                break
+        if path is None:
+            print(f"  ⚠️ MGE TSV not found (tried {', '.join(candidates)})")
+            return {}
+        try:
+            df = pd.read_csv(path, sep='\t')
+        except Exception as e:
+            print(f"  ❌ Failed to read MGE TSV: {e}")
+            return {}
+        per_sample = defaultdict(list)
+        for _, row in df.iterrows():
+            sample = self.normalize_sample_id(row.get('Sample', ''))
+            if not sample:
+                continue
+
+            def clean(v):
+                return '' if pd.isna(v) else str(v)
+
+            per_sample[sample].append({
+                'rank':             clean(row.get('Rank', '')),
+                'mobileog_id':      clean(row.get('mobileOG_ID', '')),
+                'gene':             clean(row.get('Gene_Name', row.get('Gene', ''))),
+                'contig':           clean(row.get('Contig', '')),
+                'start':            clean(row.get('Start', '')),
+                'stop':             clean(row.get('Stop', '')),
+                'strand':           clean(row.get('Strand', '')),
+                'major_category':   clean(row.get('Major_Category', '')),
+                'minor_category':   clean(row.get('Minor_Category', '')),
+                'percent_identity': clean(row.get('%_Identity', row.get('Percent_Identity', ''))),
+                'align_over_qlen':  clean(row.get('Alignment_Length', row.get('Align_Over_Qlen', ''))),
+                'coverage_percent': clean(row.get('%_Coverage', row.get('Coverage_Percent', ''))),
+            })
+        if per_sample:
+            total = sum(len(v) for v in per_sample.values())
+            print(f"  ✅ Loaded MGE hits: {len(per_sample)} samples, {total} total hits")
+        return dict(per_sample)
+
+    # ------------------------------------------------------------------
+    # HTML parsing (MLST, PAST, QC)
+    # ------------------------------------------------------------------
     def parse_html_table(self, html_content: str, table_index: int = 0) -> pd.DataFrame:
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
@@ -168,9 +242,7 @@ class PseudomonasHTMLParser:
                     row_data = [col.get_text().strip() for col in cols]
                     if len(row_data) == len(headers):
                         data.append(row_data)
-            if not data:
-                return pd.DataFrame()
-            return pd.DataFrame(data, columns=headers)
+            return pd.DataFrame(data, columns=headers) if data else pd.DataFrame()
         except Exception as e:
             print(f"  ⚠️ Table parsing error: {e}")
             return pd.DataFrame()
@@ -192,24 +264,24 @@ class PseudomonasHTMLParser:
                 return {}
             results = {}
             for _, row in df.iterrows():
-                sample_raw = row[sample_col]
-                if not sample_raw:
+                raw = row[sample_col]
+                if not raw:
                     continue
-                sample = self.normalize_sample_id(sample_raw)
-                qc_data = {}
+                sample = self.normalize_sample_id(raw)
+                qc = {}
                 for col in df.columns:
                     if col == sample_col:
                         continue
                     val = row[col]
                     if pd.isna(val) or val == '' or val == 'ND':
-                        qc_data[col] = 'ND'
+                        qc[col] = 'ND'
                     else:
                         cleaned = str(val).replace('%', '').replace(',', '').strip()
                         try:
-                            qc_data[col] = float(cleaned)
-                        except:
-                            qc_data[col] = str(val)
-                results[sample] = qc_data
+                            qc[col] = float(cleaned)
+                        except Exception:
+                            qc[col] = str(val)
+                results[sample] = qc
             print(f"    ✓ Parsed {len(results)} samples")
             return results
         except Exception as e:
@@ -235,12 +307,12 @@ class PseudomonasHTMLParser:
             rows = mlst_table.find_all('tr')
             if len(rows) < 2:
                 return {}
-            headers = [cell.get_text().strip() for cell in rows[0].find_all(['th', 'td'])]
+            headers = [c.get_text().strip() for c in rows[0].find_all(['th', 'td'])]
             data = []
             for row in rows[1:]:
                 cols = row.find_all(['td', 'th'])
                 if cols:
-                    row_data = [col.get_text().strip() for col in cols]
+                    row_data = [c.get_text().strip() for c in cols]
                     if len(row_data) >= 2:
                         data.append(row_data)
             if not data:
@@ -248,29 +320,20 @@ class PseudomonasHTMLParser:
             df = pd.DataFrame(data)
             if len(df.columns) > len(headers):
                 df = df.iloc[:, :len(headers)]
-            df.columns = headers[:len(df.columns)]
-            df.columns = [col.strip() for col in df.columns]
+            df.columns = [c.strip() for c in headers[:len(df.columns)]]
             if 'Sample' in df.columns:
-                df['normalized_sample'] = df['Sample'].apply(self.normalize_sample_id)
-            elif any('sample' in col.lower() for col in df.columns):
-                sample_col = [col for col in df.columns if 'sample' in col.lower()][0]
-                df['normalized_sample'] = df[sample_col].apply(self.normalize_sample_id)
+                df['norm'] = df['Sample'].apply(self.normalize_sample_id)
             else:
-                df['normalized_sample'] = df.iloc[:, 0].apply(self.normalize_sample_id)
+                df['norm'] = df.iloc[:, 0].apply(self.normalize_sample_id)
             results = {}
             for _, row in df.iterrows():
-                sample = row['normalized_sample']
+                sample = row['norm']
                 st = 'ND'
                 if 'ST' in df.columns:
-                    st_raw = str(row['ST']) if pd.notna(row['ST']) else 'ND'
-                    st = self.clean_st(st_raw)
-                elif 'st' in [col.lower() for col in df.columns]:
-                    st_col = [col for col in df.columns if col.lower() == 'st'][0]
-                    st_raw = str(row[st_col]) if pd.notna(row[st_col]) else 'ND'
-                    st = self.clean_st(st_raw)
+                    st = self.clean_st(str(row['ST']) if pd.notna(row['ST']) else 'ND')
                 allele_profile = 'ND'
-                if 'Allele Profile' in df.columns:
-                    allele_profile = str(row['Allele Profile']) if pd.notna(row['Allele Profile']) else 'ND'
+                if 'Allele Profile' in df.columns and pd.notna(row['Allele Profile']):
+                    allele_profile = str(row['Allele Profile'])
                 results[sample] = {'ST': st, 'Allele_Profile': allele_profile}
             print(f"    ✓ Found {len(results)} samples")
             return results
@@ -286,7 +349,7 @@ class PseudomonasHTMLParser:
             df = self.parse_html_table(html_content, 0)
             if df.empty:
                 return {}
-            df.columns = [col.strip() for col in df.columns]
+            df.columns = [c.strip() for c in df.columns]
             sample_col = None
             for col in df.columns:
                 if 'sample' in col.lower() or 'id' in col.lower():
@@ -294,16 +357,16 @@ class PseudomonasHTMLParser:
                     break
             if not sample_col:
                 sample_col = df.columns[0]
-            df['normalized_sample'] = df[sample_col].apply(self.normalize_sample_id)
+            df['norm'] = df[sample_col].apply(self.normalize_sample_id)
             results = {}
             for _, row in df.iterrows():
-                sample = row['normalized_sample']
-                o_type = 'ND'
-                if 'Type' in df.columns:
-                    o_type = str(row['Type']) if pd.notna(row['Type']) else 'ND'
-                elif 'O-type' in df.columns:
-                    o_type = str(row['O-type']) if pd.notna(row['O-type']) else 'ND'
-                results[sample] = {'O_Type': o_type}
+                sample = row['norm']
+                o = 'ND'
+                for col in ('Type', 'O-type', 'O_Type'):
+                    if col in df.columns and pd.notna(row.get(col)):
+                        o = str(row[col])
+                        break
+                results[sample] = {'O_Type': o}
             print(f"    ✓ Found {len(results)} samples")
             return results
         except Exception as e:
@@ -311,1535 +374,1603 @@ class PseudomonasHTMLParser:
             return {}
 
 
+# =============================================================================
+# ANALYZER
+# =============================================================================
 class PseudomonasDataAnalyzer:
+    """Patterns, gene-centric tables, T3SS/carbapenemase derivation."""
+
     def __init__(self):
-        self.critical_amr_genes = {
-            'blaKPC', 'blaNDM', 'blaVIM', 'blaIMP', 'blaOXA', 'blaGES',
-            'mcr-1', 'mcr-2', 'mcr-3', 'mcr-4', 'mcr-5', 'mcr-6',
-            'armA', 'rmtA', 'rmtB', 'rmtC', 'rmtD'
+        self.carbapenemase_families = {
+            'KPC': ['kpc'], 'NDM': ['ndm'], 'VIM': ['vim'], 'IMP': ['imp'],
+            'GES': ['ges'], 'SPM': ['spm'],
+            'OXA-23-like': ['oxa-23'],
+            'OXA-24/40-like': ['oxa-24', 'oxa-40'],
+            'OXA-48-like': ['oxa-48', 'oxa-181', 'oxa-232', 'oxa-204', 'oxa-244'],
+            'OXA-58-like': ['oxa-58'],
         }
+        self.oxa_class_d_esbl_families = {
+            'OXA-2-like': ['oxa-2', 'oxa-3', 'oxa-15', 'oxa-20',
+                           'oxa-21', 'oxa-32', 'oxa-34', 'oxa-45'],
+            'OXA-10-like': ['oxa-10', 'oxa-11', 'oxa-13', 'oxa-14',
+                            'oxa-16', 'oxa-17', 'oxa-19', 'oxa-28',
+                            'oxa-35', 'oxa-74', 'oxa-101', 'oxa-128'],
+        }
+        self.intrinsic_oxa_families = {
+            'OXA-50-like': ['oxa-50', 'oxa-395', 'oxa-396'],
+        }
+        self.other_esbl_families = {
+            'PER': ['per'], 'VEB': ['veb'], 'BEL': ['bel'],
+            'CTX-M': ['ctx-m'], 'TEM': ['tem'], 'SHV': ['shv'],
+        }
+        self.colistin_resistance = {f'mcr-{i}' for i in range(1, 11)}
+        self.methyltransferases = {
+            'arma', 'rmta', 'rmtb', 'rmtc', 'rmtd', 'rmte', 'rmtf', 'rmtg', 'rmth',
+        }
+        self.unclassified_prefixes = {
+            'oxa': 'OXA variant (unclassified)',
+            'kpc': 'KPC variant (unclassified)',
+            'ndm': 'NDM variant (unclassified)',
+            'vim': 'VIM variant (unclassified)',
+            'imp': 'IMP variant (unclassified)',
+            'ges': 'GES variant (unclassified)',
+            'spm': 'SPM variant (unclassified)',
+            'per': 'PER variant (unclassified)',
+            'veb': 'VEB variant (unclassified)',
+            'bel': 'BEL variant (unclassified)',
+            'ctx-m': 'CTX-M variant (unclassified)',
+        }
+        self.critical_amr_genes = set()
+        for d in (self.carbapenemase_families, self.oxa_class_d_esbl_families,
+                  self.intrinsic_oxa_families, self.other_esbl_families):
+            for sub in d.values():
+                self.critical_amr_genes.update(sub)
+        self.critical_amr_genes.update(self.colistin_resistance)
+        self.critical_amr_genes.update(self.methyltransferases)
+
         self.critical_virulence_genes = {
-            'exoU', 'exoS', 'exoT', 'exoY', 'exoA', 'toxA',
-            'pld', 'plcH', 'plcN', 'lasB', 'lasA', 'aprA'
+            'exou', 'exos', 'exot', 'exoy', 'exoa', 'toxa',
+            'plch', 'plcn', 'lasb', 'lasa', 'apra',
         }
+
+    def normalize_gene_name(self, raw: str) -> str:
+        name = str(raw).lower().strip()
+        name = name.replace("beta-lactamase ", "")
+        if name.startswith("bla"):
+            name = name[3:]
+        tokens = re.split(r'[_/]', name)
+        return tokens[0] if tokens else name
+
+    def match_gene(self, input_gene: str) -> str:
+        clean = self.normalize_gene_name(input_gene)
+        if clean in self.critical_amr_genes:
+            return clean
+        for base in self.critical_amr_genes:
+            if clean.startswith(base + "-") or clean == base:
+                return base
+        return ""
+
+    def classify_carbapenemase_family(self, raw_gene: str) -> Tuple[str, str]:
+        clean = self.normalize_gene_name(raw_gene)
+        if not clean:
+            return '', ''
+        for fam, pats in self.carbapenemase_families.items():
+            if any(clean == p or clean.startswith(p + '-') or clean.startswith(p) for p in pats):
+                return fam, 'acquired_carbapenemase'
+        for fam, pats in self.oxa_class_d_esbl_families.items():
+            if any(clean == p or clean.startswith(p + '-') or clean.startswith(p) for p in pats):
+                return fam, 'oxa_esbl'
+        for fam, pats in self.intrinsic_oxa_families.items():
+            if any(clean == p or clean.startswith(p + '-') or clean.startswith(p) for p in pats):
+                return fam, 'intrinsic_oxa'
+        for fam, pats in self.other_esbl_families.items():
+            if any(clean == p or clean.startswith(p + '-') or clean.startswith(p) for p in pats):
+                return fam, 'other_esbl'
+        for pat in self.colistin_resistance:
+            if clean == pat or clean.startswith(pat):
+                return pat, 'colistin'
+        for pat in self.methyltransferases:
+            if clean == pat or clean.startswith(pat):
+                return pat, 'methyltransferase'
+        for prefix in self.unclassified_prefixes:
+            if clean == prefix:
+                return f'{prefix.upper()} (class-level)', 'ambiguous_class_level'
+        m = re.match(r'^([a-z]+(?:-[a-z]+)?)-(\d+)$', clean)
+        if m and m.group(1) in self.unclassified_prefixes:
+            return f'{self.unclassified_prefixes[m.group(1)]} — {clean}', 'unclassified'
+        return '', ''
+
+    @staticmethod
+    def derive_t3ss_pathotype(genes: List[str]) -> str:
+        gl = [str(g).lower() for g in genes]
+        exou = any('exou' in g for g in gl)
+        exos = any('exos' in g for g in gl)
+        if exou and exos:
+            return 'ExoU+ExoS'
+        if exou:
+            return 'ExoU'
+        if exos:
+            return 'ExoS'
+        return 'Neither'
 
     def create_gene_centric_tables(self, integrated_data: Dict[str, Any]) -> Dict[str, Any]:
-        gene_centric = {
-            'amr_databases': {},
-            'virulence_databases': {},
-            'plasmid_databases': {},
-            'bacmet_databases': {},
-            'combined_gene_frequencies': []
+        gc = {
+            'amr_databases': {}, 'virulence_databases': {},
+            'plasmid_databases': {}, 'bacmet_databases': {},
+            'combined_gene_frequencies': [],
         }
-
         if 'amrfinder' in integrated_data.get('gene_frequencies', {}):
-            amr_data = integrated_data['gene_frequencies']['amrfinder']
-            gene_list = []
-            for gene, data in amr_data.items():
-                gene_list.append({
-                    'gene': gene,
-                    'database': 'AMRfinder',
-                    'frequency': str(data.get('count', 0)),
-                    'count': data.get('count', 0),
-                    'genomes': data.get('genomes', [])
-                })
-            if gene_list:
-                gene_centric['amr_databases']['amrfinder'] = sorted(gene_list, key=lambda x: x['count'], reverse=True)
+            amr = integrated_data['gene_frequencies']['amrfinder']
+            lst = [{'gene': g, 'database': 'AMRfinder',
+                    'frequency': str(d.get('count', 0)),
+                    'count': int(d.get('count', 0)),
+                    'genomes': d.get('genomes', [])}
+                   for g, d in amr.items()]
+            if lst:
+                gc['amr_databases']['amrfinder'] = sorted(
+                    lst, key=lambda x: x['count'], reverse=True)
 
         if 'abricate' in integrated_data.get('gene_frequencies', {}):
-            for db_name, db_genes in integrated_data['gene_frequencies']['abricate'].items():
-                gene_list = []
-                for gene, data in db_genes.items():
-                    gene_list.append({
-                        'gene': gene,
-                        'database': db_name.upper(),
-                        'frequency': str(data.get('count', 0)),
-                        'count': data.get('count', 0),
-                        'genomes': data.get('genomes', [])
-                    })
-                if gene_list:
-                    gene_list.sort(key=lambda x: x['count'], reverse=True)
-                    if db_name in ['vfdb', 'ecoli_vf', 'pa_vf', 'pseudomonas_vf']:
-                        gene_centric['virulence_databases'][db_name] = gene_list
-                    elif db_name == 'plasmidfinder':
-                        gene_centric['plasmid_databases'][db_name] = gene_list
-                    elif db_name == 'bacmet2':
-                        gene_centric['bacmet_databases'][db_name] = gene_list
-                    else:
-                        gene_centric['amr_databases'][db_name] = gene_list
+            for db, db_genes in integrated_data['gene_frequencies']['abricate'].items():
+                lst = [{'gene': g, 'database': db.upper(),
+                        'frequency': str(d.get('count', 0)),
+                        'count': int(d.get('count', 0)),
+                        'genomes': d.get('genomes', [])}
+                       for g, d in db_genes.items()]
+                if not lst:
+                    continue
+                lst.sort(key=lambda x: x['count'], reverse=True)
+                if db in ('vfdb', 'ecoli_vf', 'pa_vf', 'pseudomonas_vf'):
+                    gc['virulence_databases'][db] = lst
+                elif db == 'plasmidfinder':
+                    gc['plasmid_databases'][db] = lst
+                elif db == 'bacmet2':
+                    gc['bacmet_databases'][db] = lst
+                else:
+                    gc['amr_databases'][db] = lst
 
         all_genes = []
-        for db_type in ['amr_databases', 'virulence_databases', 'plasmid_databases', 'bacmet_databases']:
-            for genes in gene_centric.get(db_type, {}).values():
-                all_genes.extend(genes)
+        for t in ('amr_databases', 'virulence_databases',
+                  'plasmid_databases', 'bacmet_databases'):
+            for gs in gc.get(t, {}).values():
+                all_genes.extend(gs)
         all_genes.sort(key=lambda x: x['count'], reverse=True)
-        gene_centric['combined_gene_frequencies'] = all_genes
-
-        return gene_centric
+        gc['combined_gene_frequencies'] = all_genes
+        return gc
 
     def create_cross_genome_patterns(self, integrated_data: Dict[str, Any]) -> Dict[str, Any]:
-        patterns = {
-            'st_distribution': Counter(),
+        samples = integrated_data.get('samples', {})
+        P = {
+            'mlst_distribution': Counter(),
             'o_type_distribution': Counter(),
-            'st_o_combinations': defaultdict(list),
+            't3ss_distribution': Counter(),
             'st_to_samples': defaultdict(list),
-            'gene_cooccurrence': defaultdict(Counter)
+            'o_type_to_samples': defaultdict(list),
+            't3ss_to_samples': defaultdict(list),
+            'gene_cooccurrence': defaultdict(Counter),
+            'high_risk_combinations': [],
+            'carbapenemase_by_sample': defaultdict(
+                lambda: defaultdict(lambda: defaultdict(dict))),
+            'carbapenemase_family_distribution': Counter(),
+            'carbapenemase_category_distribution': Counter(),
         }
-        samples_data = integrated_data.get('samples', {})
+        COMBO_FIELDS = {
+            'mlst_otype':      ['MLST', 'O_Type'],
+            'mlst_t3ss':       ['MLST', 'T3SS'],
+            'otype_t3ss':      ['O_Type', 'T3SS'],
+            'mlst_otype_t3ss': ['MLST', 'O_Type', 'T3SS'],
+        }
+        combos = {k: defaultdict(list) for k in COMBO_FIELDS}
 
         sample_genes = defaultdict(list)
-        gene_centric = integrated_data.get('gene_centric', {})
-        for db_type in ['amr_databases', 'virulence_databases', 'plasmid_databases', 'bacmet_databases']:
-            for genes in gene_centric.get(db_type, {}).values():
-                for gene_data in genes:
-                    for genome in gene_data['genomes']:
-                        if gene_data['gene'] not in sample_genes[genome]:
-                            sample_genes[genome].append(gene_data['gene'])
+        gc = integrated_data.get('gene_centric', {})
+        for t in ('amr_databases', 'virulence_databases',
+                  'plasmid_databases', 'bacmet_databases'):
+            for gs in gc.get(t, {}).values():
+                for g in gs:
+                    for genome in g['genomes']:
+                        if g['gene'] not in sample_genes[genome]:
+                            sample_genes[genome].append(g['gene'])
 
-        for sample, data in samples_data.items():
-            st = data.get('mlst', {}).get('ST', 'ND')
-            o_type = data.get('serotype', {}).get('O_Type', 'ND')
-            if st != 'ND':
-                patterns['st_distribution'][st] += 1
-                patterns['st_to_samples'][st].append(sample)
-            if o_type != 'ND':
-                patterns['o_type_distribution'][o_type] += 1
-            if st != 'ND' and o_type != 'ND':
-                patterns['st_o_combinations'][f"{st} - {o_type}"].append(sample)
+        for sample, data in samples.items():
+            seen = set()
+            sources = [(raw, 'AMRfinder')
+                       for raw in data.get('amrfinder', {}).get('all_genes', [])]
+            for db, gs in data.get('abricate_databases', {}).items():
+                for raw in gs:
+                    sources.append((raw, db.upper()))
+            for raw, db_name in sources:
+                fam, cat = self.classify_carbapenemase_family(raw)
+                if not fam or not cat:
+                    continue
+                key = (fam, cat, raw)
+                if key in seen:
+                    continue
+                seen.add(key)
+                bucket = P['carbapenemase_by_sample'][sample][cat][fam]
+                if raw not in bucket:
+                    bucket[raw] = []
+                if db_name not in bucket[raw]:
+                    bucket[raw].append(db_name)
+                if cat == 'acquired_carbapenemase':
+                    P['carbapenemase_family_distribution'][fam] += 1
+                P['carbapenemase_category_distribution'][cat] += 1
+
+        def ok(v):
+            return v and v not in ('Not Assigned', 'ND', '', 'nan')
+
+        for sample, data in samples.items():
+            t = data.get('typing', {})
+            values = {
+                'MLST':   t.get('MLST', 'ND'),
+                'O_Type': t.get('O_Type', 'ND'),
+                'T3SS':   t.get('T3SS', 'ND'),
+            }
+            if ok(values['MLST']):
+                P['mlst_distribution'][values['MLST']] += 1
+                P['st_to_samples'][values['MLST']].append(sample)
+            if ok(values['O_Type']):
+                P['o_type_distribution'][values['O_Type']] += 1
+                P['o_type_to_samples'][values['O_Type']].append(sample)
+            if ok(values['T3SS']):
+                P['t3ss_distribution'][values['T3SS']] += 1
+                P['t3ss_to_samples'][values['T3SS']].append(sample)
+            for key, fields in COMBO_FIELDS.items():
+                if all(ok(values[f]) for f in fields):
+                    label = ' - '.join(values[f] for f in fields)
+                    combos[key][label].append(sample)
+
+            amr_genes = data.get('amrfinder', {}).get('all_genes', [])
+            vir_genes = []
+            for vdb in ('vfdb', 'ecoli_vf'):
+                vir_genes.extend(data.get('abricate_databases', {}).get(vdb, []))
+            crit_amr = [g for g in amr_genes if self.match_gene(g)]
+            crit_vir = [g for g in vir_genes
+                        if any(c in str(g).lower() for c in self.critical_virulence_genes)]
+            if crit_amr and crit_vir:
+                P['high_risk_combinations'].append({
+                    'sample': sample,
+                    'mlst': values['MLST'],
+                    'o_type': values['O_Type'],
+                    't3ss': values['T3SS'],
+                    'critical_amr_genes': crit_amr,
+                    'critical_virulence_genes': crit_vir,
+                })
 
             genes = sample_genes.get(sample, [])
             for i, g1 in enumerate(genes):
-                for g2 in genes[i+1:]:
-                    patterns['gene_cooccurrence'][g1][g2] += 1
+                for g2 in genes[i + 1:]:
+                    P['gene_cooccurrence'][g1][g2] += 1
 
-        return patterns
+        for k in combos:
+            P[k] = dict(combos[k])
+        return P
 
 
+# =============================================================================
+# HTML GENERATOR
+# =============================================================================
 class PseudomonasHTMLGenerator:
-    def __init__(self, data_analyzer: PseudomonasDataAnalyzer):
-        self.data_analyzer = data_analyzer
+    """Builds the interactive multi-tab HTML report with lazy-loaded boxes."""
 
+    def __init__(self, analyzer: PseudomonasDataAnalyzer):
+        self.analyzer = analyzer
+        self.tab_colors = {
+            'summary': '#8B4513', 'samples': '#2E7D32',
+            'amr': '#C62828', 'virulence': '#E65100',
+            'plasmid': '#3F51B5', 'bacmet': '#607D8B',
+            'mutation': '#00BCD4', 'mge': '#16A085',
+            'citation': '#00838F', 'guide': '#4527A0',
+            'calltoaction': '#2E7D32', 'export': '#37474F',
+        }
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _credit_bar(self, color: str, icon: str, title: str, body: str) -> str:
+        return f'''
+        <div class="scientific-note" style="background:linear-gradient(135deg,#fdf6ec 0%,#f5e6d3 100%);border-left:6px solid {color};margin-bottom:20px;padding:15px;border-radius:8px;">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span style="font-size:1.4em;">{icon}</span>
+                <div>
+                    <strong style="font-size:1.1em;color:{color};">{title}</strong><br>
+                    <span style="font-size:.95em;color:#333;">{body}</span>
+                </div>
+            </div>
+        </div>'''
+
+    def _alert(self, kind: str, icon: str, html_body: str) -> str:
+        return f'<div class="alert-box alert-{kind}"><i class="fas {icon} fa-2x"></i><div>{html_body}</div></div>'
+
+    def _stat_card(self, value, label: str, color: str = '#8B4513', icon: str = '') -> str:
+        icon_html = (f'<i class="fas {icon} fa-2x" style="opacity:.9;margin-bottom:8px;"></i>'
+                     if icon else '')
+        return f'''
+        <div class="stat-card" style="background:linear-gradient(135deg,{color} 0%,{color}dd 100%);">
+            {icon_html}
+            <div class="stat-value">{value}</div>
+            <div class="stat-label">{label}</div>
+        </div>'''
+
+    def _gene_family_info(self, border: str, title: str, items: list) -> str:
+        html = (f'<div style="margin:10px 0 20px 0;background:#fdf6ec;padding:15px;'
+                f'border-radius:8px;font-size:.9em;border-left:4px solid {border};">'
+                f'<strong><i class="fas fa-info-circle"></i> {title}</strong><br>')
+        for n, d in items:
+            html += f'• <strong>{n}</strong> – {d}<br>'
+        return html + '</div>'
+
+    # ------------------------------------------------------------------
+    # CSS
+    # ------------------------------------------------------------------
+    def _get_css(self) -> str:
+        return """
+<style>
+:root{
+  --brown:#8B4513;--brown-light:#A0522D;--brown-dark:#5C2E0B;
+  --summary-color:#8B4513;--samples-color:#2E7D32;
+  --amr-color:#C62828;--virulence-color:#E65100;--plasmid-color:#3F51B5;
+  --bacmet-color:#607D8B;--mutation-color:#00BCD4;--mge-color:#16A085;
+  --citation-color:#00838F;--guide-color:#4527A0;
+  --calltoaction-color:#2E7D32;--export-color:#37474F;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;line-height:1.6;color:#333;background:#f5f5f5;min-width:1200px}
+.container{max-width:none;margin:0 auto;padding:20px;width:100%;overflow-x:auto}
+.main-header{background:linear-gradient(135deg,#2A1408 0%,#5C2E0B 40%,#8B4513 100%);color:white;padding:30px;border-radius:15px;box-shadow:0 10px 30px rgba(0,0,0,.2);margin-bottom:30px;text-align:center}
+.main-header h1{font-size:2.8em;margin-bottom:10px;color:white}
+.metadata-bar{background:rgba(255,255,255,.1);padding:15px;border-radius:10px;margin:20px 0;display:flex;justify-content:space-around;flex-wrap:wrap;gap:15px}
+.metadata-item{display:flex;align-items:center;gap:8px;font-size:.95em}
+.dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;margin-bottom:30px}
+.dashboard-card{background:white;padding:22px;border-radius:12px;box-shadow:0 5px 20px rgba(0,0,0,.1);text-align:center;transition:all .3s ease;cursor:pointer;border-left:5px solid var(--brown);position:relative;overflow:hidden}
+.dashboard-card:hover{transform:translateY(-10px);box-shadow:0 15px 30px rgba(0,0,0,.2)}
+.card-number{font-size:2.6em;font-weight:bold;margin:10px 0;background:linear-gradient(90deg,#5C2E0B,#8B4513);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.card-label{font-size:.9em;color:#555;font-weight:600}
+.tab-navigation{display:flex;gap:5px;margin-bottom:20px;flex-wrap:wrap;background:white;padding:15px;border-radius:12px;box-shadow:0 5px 20px rgba(0,0,0,.1);position:sticky;top:10px;z-index:100}
+.tab-button{padding:11px 18px;background:#f5f5f5;border:none;border-radius:8px;cursor:pointer;font-weight:600;color:#666;transition:all .3s ease;display:flex;align-items:center;gap:8px;font-size:.88em}
+.tab-button.active{color:white}
+.tab-button.summary.active{background:var(--summary-color)}
+.tab-button.samples.active{background:var(--samples-color)}
+.tab-button.amr.active{background:var(--amr-color)}
+.tab-button.virulence.active{background:var(--virulence-color)}
+.tab-button.plasmid.active{background:var(--plasmid-color)}
+.tab-button.bacmet.active{background:var(--bacmet-color)}
+.tab-button.mutation.active{background:var(--mutation-color)}
+.tab-button.mge.active{background:var(--mge-color)}
+.tab-button.citation.active{background:var(--citation-color)}
+.tab-button.guide.active{background:var(--guide-color)}
+.tab-button.calltoaction.active{background:var(--calltoaction-color)}
+.tab-button.export.active{background:var(--export-color)}
+.tab-content{display:none;background:white;padding:30px;border-radius:15px;box-shadow:0 10px 30px rgba(0,0,0,.1);margin-bottom:30px;animation:fadeIn .5s ease;width:100%;overflow-x:auto}
+.tab-content.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.section-header{color:#2c3e50;margin-bottom:25px;padding-bottom:15px;border-bottom:3px solid var(--brown);font-size:1.8em;display:flex;align-items:center;justify-content:space-between}
+.data-table{width:100%;border-collapse:collapse;margin:20px 0;font-size:.95em;box-shadow:0 2px 10px rgba(0,0,0,.1);border-radius:8px;overflow:hidden}
+.data-table th{background:#5C2E0B;color:white;padding:14px;text-align:left;font-weight:600;position:sticky;top:0;white-space:nowrap;cursor:pointer}
+.data-table th:hover{background:#3D1E08}
+.data-table td{padding:12px;border-bottom:1px solid #e0e0e0;vertical-align:top}
+.data-table tr:hover td{background:#fdf6ec}
+.scrollable-table{max-height:600px;overflow-y:auto;border:1px solid #e0e0e0;border-radius:8px;margin:20px 0;width:100%}
+.master-scrollable-container{width:100%;overflow-x:auto;border:1px solid #e0e0e0;border-radius:8px;margin:20px 0}
+.genome-list{display:flex;flex-wrap:wrap;gap:5px;max-height:220px;overflow-y:auto;padding:6px;background:#fdf6ec;border-radius:5px}
+.genome-tag{display:inline-block;background:#e6ffe6;color:#5C2E0B;padding:3px 10px;border-radius:12px;font-size:.85em;border:1px solid #E8C39E;white-space:nowrap;margin:2px}
+.genome-tag.highlight{background-color:#ffff99 !important;color:#000 !important;border:1px solid #ffc107}
+.search-box{width:100%;padding:12px;margin-bottom:20px;border:2px solid #e0e0e0;border-radius:8px;font-size:1em;transition:all .3s ease}
+.search-box:focus{outline:none;border-color:#8B4513;box-shadow:0 0 0 3px rgba(139,69,19,.1)}
+.action-buttons{display:flex;gap:10px;margin:20px 0;flex-wrap:wrap}
+.action-btn{padding:10px 20px;border:none;border-radius:8px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:8px;transition:all .3s ease;text-decoration:none}
+.action-btn:hover{transform:translateY(-2px);box-shadow:0 5px 15px rgba(0,0,0,.2)}
+.btn-primary{background:#8B4513;color:white}
+.btn-success{background:#28a745;color:white}
+.btn-danger{background:#C62828;color:white}
+.btn-warning{background:#ffc107;color:black}
+.btn-info{background:#17a2b8;color:white}
+.btn-secondary{background:#6c757d;color:white}
+.btn-light{background:#f8f9fa;color:#212529;border:1px solid #dee2e6}
+.badge{display:inline-block;padding:5px 15px;border-radius:20px;font-size:.85em;font-weight:600;margin:2px}
+.badge-critical{background:#8B0000;color:white}
+.badge-exou{background:#C62828;color:white}
+.badge-exos{background:#1565C0;color:white}
+.alert-box{padding:20px;border-radius:10px;margin:20px 0;display:flex;align-items:flex-start;gap:20px;border-left:5px solid}
+.alert-success{background:#d4edda;color:#155724;border-left-color:#28a745}
+.alert-warning{background:#fff3cd;color:#856404;border-left-color:#ffc107}
+.alert-danger{background:#f5e6d3;color:#3D1E08;border-left-color:#8B4513}
+.alert-info{background:#d1ecf1;color:#0c5460;border-left-color:#17a2b8}
+.scientific-note{border-radius:8px}
+.database-section{margin:30px 0;padding:25px;border-radius:12px;background:#fdf6ec;box-shadow:0 3px 15px rgba(0,0,0,.08)}
+.print-section-btn{background:#8B4513;color:white;border:none;border-radius:5px;padding:8px 15px;cursor:pointer;display:flex;align-items:center;gap:5px;font-size:.9em}
+.print-section-btn:hover{background:#A0522D}
+.footer{text-align:center;padding:30px;color:white;margin-top:40px;border-radius:15px;background:linear-gradient(135deg,#2A1408 0%,#5C2E0B 100%)}
+.footer a{color:#E8C39E;text-decoration:none}
+.footer a:hover{text-decoration:underline}
+.footer .star-cta{display:inline-block;background:linear-gradient(135deg,#ffc107,#ff9800);color:#2A1408;font-weight:800;padding:10px 22px;border-radius:24px;margin-top:12px;text-decoration:none;box-shadow:0 3px 10px rgba(0,0,0,.25);transition:transform .2s}
+.footer .star-cta:hover{transform:translateY(-2px);text-decoration:none}
+.sort-icon{margin-left:5px;font-size:.8em;opacity:.6}
+.stat-card{color:white;padding:18px;border-radius:10px;text-align:center;box-shadow:0 4px 15px rgba(0,0,0,.15);transition:transform .2s}
+.stat-card:hover{transform:translateY(-3px)}
+.stat-card .stat-value{font-size:1.9em;font-weight:bold;margin-bottom:4px}
+.stat-card .stat-label{font-size:.85em;opacity:.95;text-transform:uppercase;letter-spacing:.5px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:15px;margin:20px 0}
+.typing-badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:.8em;font-weight:600;background:#e0e0e0;color:#333;border:1px solid #ccc}
+.typing-badge.t3ss-exou{background:#C62828;color:white;border-color:#8B0000}
+.typing-badge.t3ss-exos{background:#1565C0;color:white;border-color:#0D47A1}
+.typing-badge.t3ss-both{background:#6A1B9A;color:white;border-color:#4A148C}
+.typing-badge.t3ss-neither{background:#6b7280;color:white;border-color:#4B5563}
+.copy-btn{background:#8B4513;color:white;border:none;padding:4px 14px;border-radius:16px;cursor:pointer;font-size:.82em;font-weight:600;transition:background .2s}
+.copy-btn:hover{background:#A0522D}
+
+.isolate-box{border:1px solid #E8C39E;border-radius:12px;margin-bottom:18px;padding:18px 20px;background:#fdf6ec;box-shadow:0 2px 8px rgba(139,69,19,.08);transition:box-shadow .2s}
+.isolate-box:hover{box-shadow:0 4px 14px rgba(139,69,19,.15)}
+.isolate-box .sample-header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.isolate-box .sample-header h3{font-size:1.25em;margin:0;color:#5C2E0B}
+.isolate-box .total-badge{background:#8B4513;color:white;padding:4px 14px;border-radius:20px;font-weight:bold;font-size:.85em}
+.isolate-box .typing-info{display:flex;flex-wrap:wrap;gap:6px}
+.isolate-box .toggle-btn{background:#8B4513;color:white;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:600;font-size:.85em;display:inline-flex;align-items:center;gap:6px;margin-left:auto;transition:background .2s}
+.isolate-box .toggle-btn:hover{background:#A0522D}
+.isolate-box .box-details{margin-top:14px}
+.database-table-wrapper{margin:14px 0;overflow-x:auto;border:1px solid #E8C39E;border-radius:8px;background:white}
+.database-table-wrapper table{width:100%;border-collapse:collapse;font-size:.85em;min-width:800px}
+.database-table-wrapper table th{background:#5C2E0B;color:white;padding:8px 12px;text-align:left;white-space:nowrap}
+.database-table-wrapper table td{padding:8px 12px;border-bottom:1px solid #f0f0f0;white-space:nowrap}
+.database-table-wrapper table tr:hover{background:#fdf6ec}
+.db-title{font-weight:bold;color:#8B4513;margin:10px 0 5px 0;font-size:1.05em;border-left:4px solid #8B4513;padding-left:10px}
+.filter-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:#fdf6ec;padding:15px;border-radius:8px;margin-bottom:20px}
+.filter-controls select{padding:10px;border-radius:8px;border:2px solid #E8C39E;background:white;min-width:150px}
+.results-counter{font-size:.9em;color:#5C2E0B;font-weight:600;padding:8px 12px;background:#f5e6d3;border-radius:6px;white-space:nowrap}
+
+@media print{body *{visibility:hidden}.tab-content.active,.tab-content.active *{visibility:visible}.tab-content.active{position:absolute;left:0;top:0;width:100%;padding:20px;box-shadow:none;border-radius:0}.print-section-btn,.tab-navigation,.dashboard-grid,.search-box,.action-buttons,.filter-controls,.toggle-btn{display:none !important}.isolate-box .box-details{display:block !important}}
+</style>"""
+
+    # ------------------------------------------------------------------
+    # JS
+    # ------------------------------------------------------------------
+    def _get_js(self, typing_json: str) -> str:
+        return f"""
+<script>
+var sampleTyping = {typing_json};
+window.PSEUDOSCOPE_BOX_DATA = window.PSEUDOSCOPE_BOX_DATA || {{}};
+
+function escapeHtml(str) {{
+    return String(str)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}}
+
+function switchTab(tabName) {{
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+    var content = document.getElementById(tabName + '-tab');
+    var button = document.querySelector('.tab-button.' + tabName);
+    if (content) content.classList.add('active');
+    if (button) button.classList.add('active');
+    if (event && event.currentTarget) event.currentTarget.classList.add('active');
+    window.location.hash = tabName;
+}}
+
+function searchTable(tableId, searchId) {{
+    var input = document.getElementById(searchId);
+    if (!input) return;
+    var filter = input.value.toUpperCase();
+    var table = document.getElementById(tableId);
+    if (!table || !table.tBodies[0]) return;
+    var rows = table.tBodies[0].rows;
+    for (var i = 0; i < rows.length; i++) {{
+        var found = false;
+        var cells = rows[i].getElementsByTagName('td');
+        for (var j = 0; j < cells.length; j++) {{
+            if (cells[j] && (cells[j].textContent || cells[j].innerText).toUpperCase().indexOf(filter) > -1) {{
+                found = true; break;
+            }}
+        }}
+        rows[i].style.display = found ? '' : 'none';
+    }}
+}}
+
+function highlightGenome(tableId, searchId) {{
+    var el = document.getElementById(searchId);
+    if (!el) return;
+    var filter = el.value.toUpperCase().trim();
+    var table = document.getElementById(tableId);
+    if (!table) return;
+    table.querySelectorAll('.genome-tag').forEach(function(t) {{
+        t.classList.remove('highlight');
+        if (filter && t.textContent.toUpperCase().indexOf(filter) > -1) t.classList.add('highlight');
+    }});
+}}
+
+// ========== LAZY BOX RENDERING ==========
+function toggleBoxDetails(tabId, sample) {{
+    var box = document.querySelector('#' + tabId + '-tab .isolate-box[data-sample="' + CSS.escape(sample) + '"]');
+    if (!box) return;
+    var details = box.querySelector('.box-details');
+    var btn = box.querySelector('.toggle-btn');
+    var isOpen = details.style.display === 'block';
+    if (isOpen) {{
+        details.style.display = 'none';
+        if (btn) btn.innerHTML = '<i class="fas fa-chevron-down"></i> Show Details';
+        return;
+    }}
+    if (!details.innerHTML.trim()) {{
+        if (tabId === 'mutation') {{
+            details.innerHTML = buildMutationTable(sample);
+        }} else if (tabId === 'mge') {{
+            details.innerHTML = buildMgeTable(sample);
+        }} else {{
+            details.innerHTML = buildBoxContent(tabId, sample);
+        }}
+    }}
+    details.style.display = 'block';
+    if (btn) btn.innerHTML = '<i class="fas fa-chevron-up"></i> Hide Details';
+}}
+
+function buildBoxContent(tabId, sample) {{
+    var root = window.PSEUDOSCOPE_BOX_DATA || {{}};
+    var byTab = root[tabId] || {{}};
+    var entry = byTab[sample];
+    if (!entry) return '<p>No data available</p>';
+    var html = '';
+    if (entry.amrfinder && entry.amrfinder.length) {{
+        html += buildDBTable('AMRfinder', entry.amrfinder, 'amrfinder');
+    }}
+    if (entry.abricate) {{
+        for (var db in entry.abricate) {{
+            var genes = entry.abricate[db];
+            if (genes && genes.length) html += buildDBTable(db.toUpperCase(), genes, db);
+        }}
+    }}
+    return html || '<p style="color:#888;font-style:italic;">No gene details</p>';
+}}
+
+function buildDBTable(dbName, genes, dbKey) {{
+    if (!genes || !genes.length) return '';
+    var keys = Object.keys(genes[0]);
+    var priority = ['gene', 'product', 'coverage_percent', 'identity_percent',
+                    'accession', 'contig', 'start', 'stop', 'class', 'subclass',
+                    'scope', 'resistance'];
+    var ordered = priority.filter(function(k) {{ return keys.indexOf(k) !== -1; }});
+    keys.forEach(function(k) {{ if (ordered.indexOf(k) === -1) ordered.push(k); }});
+    var html = '<div class="database-table-wrapper" data-db="' + dbKey + '">';
+    html += '<div class="db-title">' + escapeHtml(dbName) + '</div>';
+    html += '<table><thead><tr>';
+    ordered.forEach(function(c) {{
+        var display = c.replace(/_/g, ' ').replace(/\\b\\w/g, function(x) {{ return x.toUpperCase(); }});
+        html += '<th>' + escapeHtml(display) + '</th>';
+    }});
+    html += '</tr></thead><tbody>';
+    genes.forEach(function(g) {{
+        html += '<tr>';
+        ordered.forEach(function(c) {{
+            var v = (g[c] == null) ? '' : g[c];
+            html += '<td>' + escapeHtml(v) + '</td>';
+        }});
+        html += '</tr>';
+    }});
+    html += '</tbody></table></div>';
+    return html;
+}}
+
+function buildMutationTable(sample) {{
+    var root = window.PSEUDOSCOPE_BOX_DATA || {{}};
+    var byTab = root['mutation'] || {{}};
+    var entry = byTab[sample];
+    if (!entry || !entry.mutations || !entry.mutations.length) return '<p>No mutations</p>';
+    var cols = ['gene','mutation','class','contig','start','stop','strand','coverage','identity','accession'];
+    var html = '<div class="database-table-wrapper" data-db="mutations"><div class="db-title">Mutations</div><table><thead><tr>';
+    cols.forEach(function(c) {{
+        var display = c.replace(/_/g, ' ').replace(/\\b\\w/g, function(x) {{ return x.toUpperCase(); }});
+        html += '<th>' + display + '</th>';
+    }});
+    html += '</tr></thead><tbody>';
+    entry.mutations.forEach(function(m) {{
+        html += '<tr>';
+        cols.forEach(function(c) {{ html += '<td>' + escapeHtml((m[c] == null) ? '' : m[c]) + '</td>'; }});
+        html += '</tr>';
+    }});
+    html += '</tbody></table></div>';
+    return html;
+}}
+
+function buildMgeTable(sample) {{
+    var root = window.PSEUDOSCOPE_BOX_DATA || {{}};
+    var byTab = root['mge'] || {{}};
+    var entry = byTab[sample];
+    if (!entry || !entry.mge || !entry.mge.length) return '<p>No MGE hits</p>';
+    var cols = ['rank', 'mobileog_id', 'gene', 'contig', 'start', 'stop', 'strand',
+                'major_category', 'minor_category', 'percent_identity',
+                'align_over_qlen', 'coverage_percent'];
+    var headers = ['Rank', 'mobileOG ID', 'Gene', 'Contig', 'Start', 'Stop', 'Strand',
+                   'Major Category', 'Minor Category', '% Identity',
+                   'Align / Qlen', 'Coverage %'];
+    var html = '<div class="database-table-wrapper" data-db="mge">';
+    html += '<div class="db-title">MGE (mobileOG-db)</div><table><thead><tr>';
+    for (var h = 0; h < headers.length; h++) {{
+        html += '<th>' + escapeHtml(headers[h]) + '</th>';
+    }}
+    html += '</tr></thead><tbody>';
+    for (var i = 0; i < entry.mge.length; i++) {{
+        html += '<tr>';
+        for (var j = 0; j < cols.length; j++) {{
+            var v = (entry.mge[i][cols[j]] == null) ? '' : entry.mge[i][cols[j]];
+            html += '<td>' + escapeHtml(v) + '</td>';
+        }}
+        html += '</tr>';
+    }}
+    html += '</tbody></table></div>';
+    return html;
+}}
+
+function expandAllBoxes(tabId) {{
+    var boxes = document.querySelectorAll('#' + tabId + '-tab .isolate-box');
+    var visible = [];
+    boxes.forEach(function(b) {{ if (b.style.display !== 'none') visible.push(b); }});
+    if (visible.length > 100) {{
+        if (!confirm('You have ' + visible.length + ' visible samples. Expanding all may take a moment. Continue?')) return;
+    }}
+    var i = 0, batch = 20;
+    function step() {{
+        var end = Math.min(i + batch, visible.length);
+        for (; i < end; i++) {{
+            var box = visible[i];
+            var sample = box.getAttribute('data-sample');
+            var details = box.querySelector('.box-details');
+            var btn = box.querySelector('.toggle-btn');
+            if (details && details.style.display !== 'block') {{
+                if (!details.innerHTML.trim()) {{
+                    if (tabId === 'mutation') {{
+                        details.innerHTML = buildMutationTable(sample);
+                    }} else if (tabId === 'mge') {{
+                        details.innerHTML = buildMgeTable(sample);
+                    }} else {{
+                        details.innerHTML = buildBoxContent(tabId, sample);
+                    }}
+                }}
+                details.style.display = 'block';
+                if (btn) btn.innerHTML = '<i class="fas fa-chevron-up"></i> Hide Details';
+            }}
+        }}
+        if (i < visible.length) setTimeout(step, 30);
+    }}
+    step();
+}}
+
+function collapseAllBoxes(tabId) {{
+    document.querySelectorAll('#' + tabId + '-tab .isolate-box').forEach(function(box) {{
+        var details = box.querySelector('.box-details');
+        if (details) details.style.display = 'none';
+        var btn = box.querySelector('.toggle-btn');
+        if (btn) btn.innerHTML = '<i class="fas fa-chevron-down"></i> Show Details';
+    }});
+}}
+
+function filterBoxes(tabId) {{
+    var searchEl = document.getElementById('search-' + tabId);
+    var dbEl = document.getElementById('dbFilter-' + tabId);
+    var search = (searchEl ? searchEl.value : '').toUpperCase();
+    var dbFilter = dbEl ? dbEl.value : 'all';
+    var boxes = document.querySelectorAll('#' + tabId + '-tab .isolate-box');
+    var visible = 0;
+    boxes.forEach(function(box) {{
+        var sample = box.getAttribute('data-sample') || '';
+        var show = (!search || sample.toUpperCase().indexOf(search) !== -1);
+        box.style.display = show ? '' : 'none';
+        if (show) visible++;
+        if (show && dbEl) {{
+            var wrappers = box.querySelectorAll('.database-table-wrapper');
+            wrappers.forEach(function(w) {{
+                var dbName = w.getAttribute('data-db') || '';
+                var keep = (dbFilter === 'all' || dbName === dbFilter);
+                w.style.display = keep ? '' : 'none';
+                var title = w.previousElementSibling;
+                if (title && title.classList.contains('db-title')) title.style.display = keep ? '' : 'none';
+            }});
+        }}
+    }});
+    var counter = document.getElementById('counter-' + tabId);
+    if (counter) counter.textContent = visible + ' shown';
+}}
+
+function resetBoxFilters(tabId) {{
+    var s = document.getElementById('search-' + tabId);
+    var d = document.getElementById('dbFilter-' + tabId);
+    if (s) s.value = '';
+    if (d) d.value = 'all';
+    filterBoxes(tabId);
+}}
+
+function sortTable(tableId, colIndex, type) {{
+    var table = document.getElementById(tableId);
+    if (!table || !table.tBodies[0]) return;
+    var tbody = table.tBodies[0];
+    var rows = Array.from(tbody.rows);
+    var asc = table.getAttribute('data-sort-dir') !== 'asc';
+    rows.sort(function(a, b) {{
+        var av = a.cells[colIndex].innerText.trim();
+        var bv = b.cells[colIndex].innerText.trim();
+        if (type === 'number') {{
+            av = parseFloat(av.replace(/,/g, '')) || 0;
+            bv = parseFloat(bv.replace(/,/g, '')) || 0;
+            return asc ? av - bv : bv - av;
+        }}
+        return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+    }});
+    tbody.append.apply(tbody, rows);
+    table.setAttribute('data-sort-dir', asc ? 'asc' : 'desc');
+}}
+
+function printSection(sectionId) {{
+    var content = document.getElementById(sectionId);
+    if (!content) return;
+    content.querySelectorAll('.isolate-box').forEach(function(box) {{
+        var tabId = box.getAttribute('data-tab');
+        var sample = box.getAttribute('data-sample');
+        var details = box.querySelector('.box-details');
+        if (details && !details.innerHTML.trim()) {{
+            if (tabId === 'mutation') {{
+                details.innerHTML = buildMutationTable(sample);
+            }} else if (tabId === 'mge') {{
+                details.innerHTML = buildMgeTable(sample);
+            }} else {{
+                details.innerHTML = buildBoxContent(tabId, sample);
+            }}
+        }}
+    }});
+    var w = window.open('', '_blank');
+    var style = document.querySelector('style');
+    w.document.write('<html><head><title>Print</title>');
+    if (style) w.document.write('<style>' + style.textContent + '</style>');
+    w.document.write('</head><body>' + content.innerHTML + '</body></html>');
+    w.document.close();
+    w.print();
+}}
+
+function exportTableToCSV(tableId, filename) {{
+    var table = document.getElementById(tableId);
+    if (!table) return;
+    var rows = table.querySelectorAll('tr');
+    var csv = [];
+    for (var i = 0; i < rows.length; i++) {{
+        var row = [], cols = rows[i].querySelectorAll('td, th');
+        for (var j = 0; j < cols.length; j++) {{
+            row.push('"' + (cols[j].innerText || '').replace(/"/g, '""') + '"');
+        }}
+        csv.push(row.join(','));
+    }}
+    var blob = new Blob([csv.join('\\n')], {{ type: 'text/csv' }});
+    var a = document.createElement('a');
+    a.download = filename; a.href = URL.createObjectURL(blob);
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}}
+
+document.addEventListener('DOMContentLoaded', function() {{
+    var hash = window.location.hash.substring(1);
+    var target = hash ? document.querySelector('.tab-button.' + hash) : document.querySelector('.tab-button');
+    if (target) target.click();
+    document.querySelectorAll('.data-table').forEach(function(table) {{
+        var headers = table.querySelectorAll('th');
+        headers.forEach(function(h, idx) {{
+            var type = h.getAttribute('data-sort') || 'string';
+            h.style.cursor = 'pointer';
+            h.addEventListener('click', function() {{ sortTable(table.id, idx, type); }});
+            var icon = document.createElement('span');
+            icon.className = 'sort-icon'; icon.innerHTML = '⇅';
+            h.appendChild(icon);
+        }});
+    }});
+    document.querySelectorAll('.copy-btn').forEach(function(b) {{
+        b.addEventListener('click', function() {{
+            var c = this.getAttribute('data-citation') || '';
+            navigator.clipboard.writeText(c).then(() => {{
+                var t = this.innerHTML;
+                this.innerHTML = '✓ Copied!';
+                setTimeout(() => {{ this.innerHTML = t; }}, 2000);
+            }});
+        }});
+    }});
+}});
+</script>"""
+
+    # ------------------------------------------------------------------
+    # Main assembly
+    # ------------------------------------------------------------------
     def generate_main_report(self, integrated_data: Dict[str, Any], output_dir: Path) -> str:
-        print("\n🎨 Generating P. aeruginosa SAMPLE-CENTRIC HTML report...")
-        html = self._create_sample_centric_html(
-            metadata=integrated_data.get('metadata', {}),
-            samples_data=integrated_data.get('samples', {}),
-            patterns=integrated_data.get('patterns', {}),
-            gene_centric=integrated_data.get('gene_centric', {}),
-            qc_data=integrated_data.get('qc_data', {}),
-            integrated_data=integrated_data
-        )
-        output_file = output_dir / "genius_pseudomonas_sample_centric_report.html"
+        print("\n🎨 Generating PSEUDOSCOPE ULTIMATE HTML report...")
+        samples_data = integrated_data.get('samples', {})
+        patterns = integrated_data.get('patterns', {})
+        gene_centric = integrated_data.get('gene_centric', {})
+        metadata = integrated_data.get('metadata', {})
+        self._current_samples_data = samples_data
+
+        sample_typing_js = {}
+        for sample, data in samples_data.items():
+            t = data.get('typing', {})
+            sample_typing_js[sample] = {
+                "MLST":  t.get('MLST', 'ND'),
+                "Otype": t.get('O_Type', 'ND'),
+                "T3SS":  t.get('T3SS', 'ND'),
+            }
+
+        css = self._get_css()
+        js = self._get_js(json.dumps(sample_typing_js))
+
+        TABS = [
+            ('summary', 'Summary', 'chart-pie'),
+            ('samples', 'Sample Overview', 'list-alt'),
+            ('amr', 'AMR', 'biohazard'),
+            ('virulence', 'Virulence', 'virus'),
+            ('plasmid', 'Plasmids', 'plug'),
+            ('bacmet', 'Bacmet2', 'flask'),
+            ('mutation', 'Mutations', 'dna'),
+            ('mge', 'MGE', 'mobile-alt'),
+            ('citation', 'Citation', 'book'),
+            ('guide', 'Guide', 'question-circle'),
+            ('calltoaction', 'Call to Action', 'globe'),
+            ('export', 'Export', 'download'),
+        ]
+
+        nav = ''
+        for i, (tid, title, icon) in enumerate(TABS):
+            active = ' active' if i == 0 else ''
+            nav += (f'<button class="tab-button {tid}{active}" onclick="switchTab(\'{tid}\')">'
+                    f'<i class="fas fa-{icon}"></i> {title}</button>')
+
+        methods = {
+            'summary': self._sec_summary,
+            'samples': self._sec_sample_overview,
+            'mge': self._sec_mge,
+            'citation': self._sec_citation,
+            'guide': self._sec_guide,
+            'calltoaction': self._sec_calltoaction,
+            'export': self._sec_export,
+        }
+
+        tabs_html = ''
+        for i, (tid, title, icon) in enumerate(TABS):
+            active = ' active' if i == 0 else ''
+            color = self.tab_colors.get(tid, '#8B4513')
+            if tid == 'amr':
+                content = self._gen_sample_boxes(
+                    integrated_data, 'amr', 'AMR',
+                    ['amrfinder', 'resfinder', 'card', 'argannot', 'megares', 'ncbi'])
+            elif tid == 'virulence':
+                content = self._gen_sample_boxes(
+                    integrated_data, 'virulence', 'Virulence',
+                    ['vfdb', 'ecoli_vf'])
+            elif tid == 'plasmid':
+                content = self._gen_sample_boxes(
+                    integrated_data, 'plasmid', 'Plasmids', ['plasmidfinder'])
+            elif tid == 'bacmet':
+                content = self._gen_sample_boxes(
+                    integrated_data, 'bacmet', 'Bacmet2', ['bacmet2'])
+            elif tid == 'mutation':
+                content = self._gen_mutation_boxes(integrated_data)
+            else:
+                content = methods[tid](integrated_data)
+
+            tabs_html += f'''
+            <div id="{tid}-tab" class="tab-content{active}">
+                <h2 class="section-header" style="border-color:{color};">
+                    <span><i class="fas fa-{icon}" style="color:{color};"></i> {title}</span>
+                    <button class="print-section-btn" onclick="printSection('{tid}-tab')">
+                        <i class="fas fa-print"></i> Print</button>
+                </h2>
+                {content}
+            </div>'''
+
+        total = len(samples_data)
+        n_amr = sum(len(g) for g in gene_centric.get('amr_databases', {}).values())
+        n_vir = sum(len(g) for g in gene_centric.get('virulence_databases', {}).values())
+        n_mut = sum(len(v) for v in integrated_data.get('mutation_details', {}).values())
+        mge_hits_total = sum(len(h) for h in integrated_data.get('mge_details', {}).values())
+
+        dash = f'''
+        <div class="dashboard-grid">
+            <div class="dashboard-card" onclick="switchTab('samples')"><div class="card-number">{total}</div><div class="card-label">Total Samples</div></div>
+            <div class="dashboard-card" onclick="switchTab('amr')"><div class="card-number">{n_amr}</div><div class="card-label">AMR Genes</div></div>
+            <div class="dashboard-card" onclick="switchTab('virulence')"><div class="card-number">{n_vir}</div><div class="card-label">Virulence Genes</div></div>
+            <div class="dashboard-card" onclick="switchTab('mutation')"><div class="card-number">{n_mut}</div><div class="card-label">Mutations</div></div>
+            <div class="dashboard-card" onclick="switchTab('mge')"><div class="card-number">{mge_hits_total}</div><div class="card-label">MGE Hits</div></div>
+        </div>'''
+
+        html = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PseudoScope Ultimate P. aeruginosa Sample-Centric Report v3.0.0</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    {css}
+    {js}
+</head>
+<body>
+<div class="container">
+    <div class="main-header">
+        <h1><i class="fas fa-dna"></i> PseudoScope Ultimate P. aeruginosa Analysis Report</h1>
+        <p>Sample-Centric Isolate Boxes with Lazy Loading</p>
+        <div class="metadata-bar">
+            <div class="metadata-item"><i class="fas fa-calendar"></i><span>Generated: {metadata.get('analysis_date','Unknown')}</span></div>
+            <div class="metadata-item"><i class="fas fa-database"></i><span>Samples: {total}</span></div>
+            <div class="metadata-item"><i class="fas fa-code-branch"></i><span>Tool: PseudoScope Ultimate v3.0.0</span></div>
+            <div class="metadata-item"><i class="fas fa-university"></i><span>University of Ghana Medical School</span></div>
+        </div>
+    </div>
+    {dash}
+    <div class="tab-navigation">{nav}</div>
+    {tabs_html}
+    <div class="footer">
+<p><strong>PSEUDOSCOPE</strong> - Sample-Centric Interactive Reports</p>
+<p class="timestamp">Generated on {metadata.get('analysis_date','Unknown')}</p>
+<div class="authorship">
+<p><strong>Technical Support &amp; Inquiries:</strong></p>
+<p>Maintainer: Brown Beckley</p>
+<p>GitHub: <a href="https://github.com/bbeckley-hub" style="color:#E8C39E;">bbeckley-hub</a></p>
+<p>Email: <a href="mailto:brownbeckley94@gmail.com" style="color:#E8C39E;">brownbeckley94@gmail.com</a></p>
+<p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
+<p style="margin-top:10px;font-size:11px;opacity:0.8;">
+Powered by the PseudoScope sample-centric integration engine
+</p>
+</div>
+</div>
+</div>
+</body>
+</html>'''
+        output_file = output_dir / "pseudoscope_ultimate_sample_centric_report.html"
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(html)
         print(f"    ✅ HTML report saved: {output_file}")
         return str(output_file)
 
-    def _create_sample_centric_html(self, **kwargs) -> str:
-        css = """
-        <style>
-        :root {
-            --brown: #8B4513;
-            --brown-light: #A0522D;
-            --brown-dark: #5C2E0B;
-            --summary-color: var(--brown);
-            --samples-color: #2E7D32;
-            --qc-color: #00695C;
-            --mlst-color: #1565C0;
-            --serotype-color: #6A1B9A;
-            --amr-color: #C62828;
-            --virulence-color: #E65100;
-            --plasmid-color: #3F51B5;
-            --bacmet-color: #607D8B;
-            --mutation-color: #00BCD4;
-            --patterns-color: #AD1457;
-            --citation-color: #00838F;
-            --guide-color: #4527A0;
-            --calltoaction-color: #2E7D32;
-            --export-color: #37474F;
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background: #f5f5f5; min-width: 1200px; }
-        .container { max-width: none; margin: 0 auto; padding: 20px; width: 100%; overflow-x: auto; }
-        .main-header { background: linear-gradient(135deg, var(--brown-dark) 0%, var(--brown) 100%); color: white; padding: 30px; border-radius: 15px; margin-bottom: 30px; text-align: center; }
-        .main-header h1 { font-size: 2.8em; margin-bottom: 10px; color: white; }
-        .metadata-bar { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; margin: 20px 0; display: flex; justify-content: space-around; flex-wrap: wrap; gap: 15px; }
-        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .dashboard-card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); text-align: center; transition: all 0.3s ease; cursor: pointer; border-left: 5px solid; }
-        .dashboard-card:hover { transform: translateY(-10px); }
-        .card-number { font-size: 3em; font-weight: bold; margin: 15px 0; background: linear-gradient(90deg, var(--brown-dark), var(--brown)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .tab-navigation { display: flex; gap: 5px; margin-bottom: 20px; flex-wrap: wrap; background: white; padding: 15px; border-radius: 12px; position: sticky; top: 10px; z-index: 100; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
-        .tab-button { padding: 12px 25px; background: #f5f5f5; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; color: #666; transition: all 0.3s ease; display: flex; align-items: center; gap: 8px; }
-        .tab-button.active { color: white; }
-        .tab-button.summary.active { background: var(--summary-color); }
-        .tab-button.samples.active { background: var(--samples-color); }
-        .tab-button.qc.active { background: var(--qc-color); }
-        .tab-button.mlst.active { background: var(--mlst-color); }
-        .tab-button.serotype.active { background: var(--serotype-color); }
-        .tab-button.amr.active { background: var(--amr-color); }
-        .tab-button.virulence.active { background: var(--virulence-color); }
-        .tab-button.plasmid.active { background: var(--plasmid-color); }
-        .tab-button.bacmet.active { background: var(--bacmet-color); }
-        .tab-button.mutation.active { background: var(--mutation-color); }
-        .tab-button.patterns.active { background: var(--patterns-color); }
-        .tab-button.citation.active { background: var(--citation-color); }
-        .tab-button.guide.active { background: var(--guide-color); }
-        .tab-button.calltoaction.active { background: var(--calltoaction-color); }
-        .tab-button.export.active { background: var(--export-color); }
-        .tab-content { display: none; background: white; padding: 30px; border-radius: 15px; margin-bottom: 30px; width: 100%; overflow-x: auto; animation: fadeIn 0.5s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        .tab-content.active { display: block; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .section-header { color: #2c3e50; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 3px solid var(--brown); font-size: 1.8em; display: flex; justify-content: space-between; }
-        .data-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 0.95em; box-shadow: 0 2px 10px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
-        .data-table th { background: var(--brown-dark); color: white; padding: 15px; text-align: left; cursor: pointer; white-space: nowrap; }
-        .data-table th:hover { background: var(--brown); }
-        .data-table td { padding: 12px; border-bottom: 1px solid #e0e0e0; vertical-align: top; word-wrap: break-word; }
-        .data-table tr:hover { background: #f8f9fa; }
-        .sort-icon { margin-left: 5px; font-size: 0.8em; opacity: 0.6; }
-        .search-box { width: 100%; padding: 12px; margin-bottom: 20px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em; transition: 0.3s; }
-        .search-box:focus { outline: none; border-color: var(--brown); box-shadow: 0 0 0 3px rgba(139,69,19,0.1); }
-        .action-buttons { display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap; clear: both; }
-        .action-btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; transition: 0.3s; }
-        .action-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
-        .btn-primary { background: var(--brown); color: white; }
-        .btn-danger { background: #dc3545; color: white; }
-        .btn-warning { background: #ffc107; color: black; }
-        .btn-info { background: #17a2b8; color: white; }
-        .btn-secondary { background: #6c757d; color: white; }
-        .btn-light { background: #f8f9fa; color: #212529; border: 1px solid #dee2e6; }
-        .badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 0.85em; font-weight: 600; margin: 2px; }
-        .badge-critical { background: #8B0000; color: white; }
-        .alert-box { padding: 20px; border-radius: 10px; margin: 20px 0; display: flex; align-items: center; gap: 20px; border-left: 5px solid; }
-        .alert-info { background: #d1ecf1; color: #0c5460; border-left-color: #17a2b8; }
-        .alert-danger { background: #f8d7da; color: #721c24; border-left-color: #dc3545; }
-        .alert-success { background: #d4edda; color: #155724; border-left-color: #28a745; }
-        .alert-warning { background: #fff3cd; color: #856404; border-left-color: #ffc107; }
-        .genome-list { display: flex; flex-wrap: wrap; gap: 5px; max-height: 200px; overflow-y: auto; padding: 5px; background: #f8f9fa; border-radius: 5px; }
-        .genome-tag { background: #e3f2fd; color: #1976d2; padding: 3px 10px; border-radius: 12px; font-size: 0.85em; border: 1px solid #bbdefb; white-space: nowrap; margin: 2px; }
-        .genome-tag.highlight { background-color: #ffff99 !important; color: #000 !important; border: 1px solid #ffc107; }
-        .genome-group { margin-bottom: 10px; width: 100%; }
-        .genome-group-header { font-weight: bold; background: #e0e0e0; padding: 4px 8px; border-radius: 4px; margin: 5px 0; font-size: 0.85em; display: inline-block; }
-        .genome-group-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-left: 10px; }
-        .grouping-controls { background: #f0f7f0; padding: 12px; border-radius: 8px; margin: 15px 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-left: 4px solid var(--brown); }
-        .grouping-controls label { font-weight: bold; margin-right: 5px; }
-        .group-btn { background: white; border: 1px solid var(--brown); color: var(--brown); padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 0.85em; transition: all 0.2s; }
-        .group-btn:hover { background: var(--brown); color: white; }
-        .group-btn.active { background: var(--brown); color: white; }
-        .scrollable-table { overflow-x: auto; width: 100%; border: 1px solid #e0e0e0; border-radius: 8px; }
-        .scrollable-table table { margin: 0; }
-        .citation-card { padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 5px solid; transition: transform 0.2s; }
-        .citation-card:hover { transform: translateX(5px); }
-        .citation-card .copy-btn { color: white; border: none; padding: 5px 15px; border-radius: 20px; cursor: pointer; font-size: 0.8em; margin-left: 10px; }
-        .citation-card a { text-decoration: none; font-weight: 600; }
-        .citation-card a.doi { color: #0D6EFD; }
-        .citation-card a.url { color: #2E7D32; }
-        .citation-card a:hover { text-decoration: underline; }
-        .footer { text-align: center; padding: 30px; background: linear-gradient(135deg, var(--brown-dark), var(--brown)); color: white; border-radius: 15px; margin-top: 40px; }
-        .footer a { color: #ffd700; text-decoration: none; }
-        .footer a:hover { text-decoration: underline; }
-        .scientific-note { background: #f9f9e0; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-left: 5px solid var(--brown); font-size: 0.95em; }
-        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin: 20px 0; }
-        .feature-item { background: #f8f9fa; padding: 20px; border-radius: 12px; border-left: 5px solid var(--brown); transition: all 0.3s; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-        .feature-item:hover { transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
-        .feature-item h4 { color: var(--brown-dark); margin-bottom: 8px; }
-        .feature-item i { color: var(--brown); margin-right: 8px; }
-        .sample-box { border: 1px solid #ddd; border-radius: 12px; margin-bottom: 30px; padding: 20px; background: #fafafa; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-        .sample-box .sample-header { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
-        .sample-box .sample-header h3 { font-size: 1.4em; margin: 0; }
-        .sample-box .sample-header .total-badge { background: var(--brown); color: white; padding: 4px 16px; border-radius: 20px; font-weight: bold; font-size: 0.9em; }
-        .sample-box .sample-header .typing-info { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
-        .sample-box .sample-header .typing-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600; background: #e0e0e0; color: #333; border: 1px solid #ccc; }
-        .sample-box .database-table-wrapper { margin: 15px 0; overflow-x: auto; }
-        .sample-box .database-table-wrapper table { width: 100%; border-collapse: collapse; font-size: 0.85em; min-width: 800px; }
-        .sample-box .database-table-wrapper table th { background: var(--brown-dark); color: white; padding: 8px 12px; text-align: left; white-space: nowrap; }
-        .sample-box .database-table-wrapper table td { padding: 8px 12px; border-bottom: 1px solid #e0e0e0; white-space: nowrap; }
-        .sample-box .database-table-wrapper table tr:hover { background: #f1f1f1; }
-        .sample-box .db-title { font-weight: bold; color: var(--brown); margin: 10px 0 5px 0; font-size: 1.1em; border-left: 4px solid var(--brown); padding-left: 10px; }
-        .filter-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-        .filter-controls select { padding: 10px; border-radius: 8px; border: 2px solid #ddd; background: white; min-width: 150px; }
-        @media print { .tab-navigation, .dashboard-grid, .search-box, .action-buttons, .print-section-btn { display: none; } .tab-content.active { display: block; } }
-        </style>
-        """
-
-        js = """
-        <script>
-        var sampleTyping = {};
-        var originalGenomeLists = {};
-
-        function switchTab(tabName) {
-            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
-            document.getElementById(tabName + '-tab').classList.add('active');
-            event.currentTarget.classList.add('active');
-            window.location.hash = tabName;
-        }
-
-        function searchTable(tableId, searchId) {
-            const filter = document.getElementById(searchId).value.toUpperCase();
-            const rows = document.getElementById(tableId).getElementsByTagName('tr');
-            for (let i = 1; i < rows.length; i++) {
-                let found = false;
-                for (let cell of rows[i].getElementsByTagName('td')) {
-                    if (cell.textContent.toUpperCase().indexOf(filter) > -1) { found = true; break; }
-                }
-                rows[i].style.display = found ? '' : 'none';
-            }
-        }
-
-        function highlightGenome(tableId, searchId) {
-            const filter = document.getElementById(searchId).value.toUpperCase().trim();
-            const table = document.getElementById(tableId);
-            const allTags = table.querySelectorAll('.genome-tag');
-            allTags.forEach(tag => tag.classList.remove('highlight'));
-            if (filter === '') return;
-            allTags.forEach(tag => {
-                if (tag.textContent.toUpperCase().indexOf(filter) > -1) {
-                    tag.classList.add('highlight');
-                }
-            });
-        }
-
-        function getTypingValue(genome, groupBy) {
-            var info = sampleTyping[genome];
-            if (!info) return "Unknown";
-            if (groupBy === "ST") return info.ST;
-            if (groupBy === "Otype") return info.Otype;
-            if (groupBy === "ST-O") return info.ST + " - " + info.Otype;
-            return "Unknown";
-        }
-
-        function groupRowGenomes(row, groupBy, originalList) {
-            let genomesCell = null;
-            for (let i = 0; i < row.cells.length; i++) {
-                if (row.cells[i].querySelector('.genome-list')) {
-                    genomesCell = row.cells[i];
-                    break;
-                }
-            }
-            if (!genomesCell) {
-                console.warn("Could not find genomes cell in row");
-                return;
-            }
-            var genomes = originalList.slice();
-            if (genomes.length === 0) {
-                genomesCell.innerHTML = '<div class="genome-list">None</div>';
-                return;
-            }
-            var groups = {};
-            genomes.forEach(function(genome) {
-                var key = getTypingValue(genome, groupBy);
-                if (!groups[key]) groups[key] = [];
-                groups[key].push(genome);
-            });
-            var html = '<div class="genome-list">';
-            for (var key in groups) {
-                var tags = groups[key].map(g => `<span class="genome-tag">${g}</span>`).join('');
-                html += `<div class="genome-group"><div class="genome-group-header">${key}</div><div class="genome-group-tags">${tags}</div></div>`;
-            }
-            html += '</div>';
-            genomesCell.innerHTML = html;
-        }
-
-        function groupGenomesByTyping(tableId, groupBy) {
-            var table = document.getElementById(tableId);
-            if (!table) {
-                console.error("Table not found:", tableId);
-                return;
-            }
-            var tbody = table.tBodies[0];
-            if (!tbody) {
-                console.error("No tbody found in table", tableId);
-                return;
-            }
-            var rows = tbody.rows;
-            for (var i = 0; i < rows.length; i++) {
-                var row = rows[i];
-                var geneNameCell = row.cells[0];
-                if (!geneNameCell) continue;
-                var geneName = geneNameCell.textContent.trim().replace(/⚠️/g, '').trim();
-                if (!originalGenomeLists[geneName]) {
-                    var genomesCell = null;
-                    for (var j = 0; j < row.cells.length; j++) {
-                        if (row.cells[j].querySelector('.genome-list')) {
-                            genomesCell = row.cells[j];
-                            break;
-                        }
-                    }
-                    if (genomesCell) {
-                        var tags = genomesCell.querySelectorAll('.genome-tag');
-                        var genomes = Array.from(tags).map(tag => tag.textContent.trim());
-                        originalGenomeLists[geneName] = genomes;
-                    } else {
-                        originalGenomeLists[geneName] = [];
-                    }
-                }
-            }
-            for (var i = 0; i < rows.length; i++) {
-                var row = rows[i];
-                var geneNameCell = row.cells[0];
-                if (!geneNameCell) continue;
-                var geneName = geneNameCell.textContent.trim().replace(/⚠️/g, '').trim();
-                var original = originalGenomeLists[geneName] || [];
-                groupRowGenomes(row, groupBy, original);
-            }
-            var container = table.closest('.tab-content');
-            if (container) {
-                var btns = container.querySelectorAll('.group-btn');
-                btns.forEach(btn => btn.classList.remove('active'));
-                var activeBtn = container.querySelector(`.group-btn[data-group="${groupBy}"]`);
-                if (activeBtn) activeBtn.classList.add('active');
-            }
-        }
-
-        function resetGenomeList(tableId) {
-            var table = document.getElementById(tableId);
-            if (!table) return;
-            var tbody = table.tBodies[0];
-            if (!tbody) return;
-            var rows = tbody.rows;
-            for (var i = 0; i < rows.length; i++) {
-                var row = rows[i];
-                var geneNameCell = row.cells[0];
-                if (!geneNameCell) continue;
-                var geneName = geneNameCell.textContent.trim().replace(/⚠️/g, '').trim();
-                var original = originalGenomeLists[geneName] || [];
-                var genomesCell = null;
-                for (var j = 0; j < row.cells.length; j++) {
-                    if (row.cells[j].querySelector('.genome-list')) {
-                        genomesCell = row.cells[j];
-                        break;
-                    }
-                }
-                if (genomesCell) {
-                    var tags = original.map(g => `<span class="genome-tag">${g}</span>`).join('');
-                    genomesCell.innerHTML = `<div class="genome-list">${tags}</div>`;
-                }
-            }
-            var container = table.closest('.tab-content');
-            if (container) {
-                var btns = container.querySelectorAll('.group-btn');
-                btns.forEach(btn => btn.classList.remove('active'));
-            }
-        }
-
-        function sortTable(tableId, colIndex, type) {
-            const table = document.getElementById(tableId);
-            const tbody = table.tBodies[0];
-            const rows = Array.from(tbody.rows);
-            const isAscending = table.getAttribute('data-sort-dir') !== 'asc';
-            rows.sort((a,b) => {
-                let aVal = a.cells[colIndex].innerText.trim();
-                let bVal = b.cells[colIndex].innerText.trim();
-                if (type === 'number') {
-                    aVal = parseFloat(aVal.replace(/,/g,'')) || 0;
-                    bVal = parseFloat(bVal.replace(/,/g,'')) || 0;
-                    return isAscending ? aVal - bVal : bVal - aVal;
-                } else {
-                    return isAscending ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-                }
-            });
-            tbody.append(...rows);
-            table.setAttribute('data-sort-dir', isAscending ? 'asc' : 'desc');
-            const headers = table.querySelectorAll('th');
-            headers.forEach((th,idx) => { let icon = th.querySelector('.sort-icon'); if(icon) icon.innerHTML = '⇅'; });
-            const currentHeader = headers[colIndex];
-            const icon = currentHeader.querySelector('.sort-icon');
-            if(icon) icon.innerHTML = isAscending ? '↑' : '↓';
-        }
-
-        function exportTableToCSV(tableId, filename) {
-            const rows = document.getElementById(tableId).querySelectorAll('tr');
-            const csv = [];
-            for (let row of rows) {
-                const cols = row.querySelectorAll('td, th');
-                const rowData = Array.from(cols).map(c => '"' + c.innerText.replace(/"/g, '""') + '"');
-                csv.push(rowData.join(','));
-            }
-            const blob = new Blob([csv.join('\\n')], {type: 'text/csv'});
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = filename;
-            a.click();
-            URL.revokeObjectURL(a.href);
-        }
-
-        function printSection(sectionId) {
-            const content = document.getElementById(sectionId);
-            const win = window.open('', '_blank');
-            win.document.write('<html><head><title>Print</title><style>' + document.querySelector('style').textContent + '</style></head><body>');
-            win.document.write(content.innerHTML);
-            win.document.write('</body></html>');
-            win.document.close();
-            win.print();
-        }
-
-        function filterBoxes(tabId) {
-            var search = document.getElementById('search-' + tabId).value.toUpperCase();
-            var dbFilter = document.getElementById('dbFilter-' + tabId).value;
-            var boxes = document.querySelectorAll('#' + tabId + '-tab .sample-box');
-            boxes.forEach(function(box) {
-                var sample = box.getAttribute('data-sample') || '';
-                var show = true;
-                if (search && sample.toUpperCase().indexOf(search) === -1) show = false;
-                var dbWrappers = box.querySelectorAll('.database-table-wrapper');
-                if (dbFilter !== 'all') {
-                    dbWrappers.forEach(function(wrapper) {
-                        var dbName = wrapper.getAttribute('data-db') || '';
-                        if (dbName === dbFilter) {
-                            wrapper.style.display = '';
-                        } else {
-                            wrapper.style.display = 'none';
-                        }
-                    });
-                    var dbTitles = box.querySelectorAll('.db-title');
-                    dbTitles.forEach(function(title) {
-                        var wrapper = title.nextElementSibling;
-                        if (wrapper && wrapper.style.display === 'none') {
-                            title.style.display = 'none';
-                        } else {
-                            title.style.display = '';
-                        }
-                    });
-                } else {
-                    dbWrappers.forEach(function(wrapper) { wrapper.style.display = ''; });
-                    box.querySelectorAll('.db-title').forEach(function(title) { title.style.display = ''; });
-                }
-                box.style.display = show ? '' : 'none';
-            });
-        }
-
-        function resetBoxFilters(tabId) {
-            document.getElementById('search-' + tabId).value = '';
-            document.getElementById('dbFilter-' + tabId).value = 'all';
-            filterBoxes(tabId);
-        }
-
-        document.addEventListener('DOMContentLoaded', function() {
-            const hash = window.location.hash.substring(1);
-            if(hash) {
-                let btn = document.querySelector(`.tab-button.${hash}`);
-                if(btn) btn.click();
-            } else document.querySelector('.tab-button').click();
-
-            document.querySelectorAll('.data-table').forEach(table => {
-                const headers = table.querySelectorAll('th');
-                headers.forEach((th, idx) => {
-                    const type = th.getAttribute('data-sort') || 'string';
-                    th.style.cursor = 'pointer';
-                    th.addEventListener('click', () => sortTable(table.id, idx, type));
-                    let icon = document.createElement('span');
-                    icon.className = 'sort-icon';
-                    icon.innerHTML = '⇅';
-                    th.appendChild(icon);
-                });
-            });
-
-            document.querySelectorAll('.copy-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const citation = this.getAttribute('data-citation');
-                    navigator.clipboard.writeText(citation).then(() => {
-                        const originalText = this.innerHTML;
-                        this.innerHTML = '✓ Copied!';
-                        setTimeout(() => { this.innerHTML = originalText; }, 2000);
-                    });
-                });
-            });
-        });
-        </script>
-        """
-
-        samples_data = kwargs['samples_data']
-        sample_typing_js = {}
-        for sample, data in samples_data.items():
-            st = data.get('mlst', {}).get('ST', 'ND')
-            otype = data.get('serotype', {}).get('O_Type', 'ND')
-            sample_typing_js[sample] = {'ST': st, 'Otype': otype}
-        sample_typing_json = json.dumps(sample_typing_js)
-        js = js.replace('var sampleTyping = {};', f'var sampleTyping = {sample_typing_json};')
-
-        metadata = kwargs['metadata']
-        samples = kwargs['samples_data']
-        patterns = kwargs['patterns']
-        gene_centric = kwargs['gene_centric']
-        qc_data = kwargs.get('qc_data', {})
-        total_amr = sum(len(genes) for genes in gene_centric.get('amr_databases', {}).values())
-        total_vir = sum(len(genes) for genes in gene_centric.get('virulence_databases', {}).values())
-        total_plasmid = sum(len(genes) for genes in gene_centric.get('plasmid_databases', {}).values())
-        total_bacmet = sum(len(genes) for genes in gene_centric.get('bacmet_databases', {}).values())
-        mutation_data = kwargs.get('integrated_data', {}).get('mutation_data', {})
-        total_mutations = len(mutation_data.get('mutations', []))
-
-        html = f"""<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>GENIUS P. aeruginosa Sample-Centric Report</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-{css}{js}</head>
-<body><div class="container">
-<div class="main-header"><h1><i class="fas fa-dna"></i> GENIUS P. aeruginosa Sample-Centric Analysis Report</h1>
-<p>Interactive Isolate Boxes for AMR, Virulence, Plasmids, Bacmet, and Mutations with Typing Badges</p>
-<div class="metadata-bar"><div class="metadata-item"><i class="fas fa-calendar"></i> {metadata.get('analysis_date','Unknown')}</div>
-<div class="metadata-item"><i class="fas fa-database"></i> Samples: {len(samples)}</div>
-<div class="metadata-item"><i class="fas fa-user-md"></i>Pathogen: P. aeruginosa</div>
-<div class="metadata-item"><i class="fas fa-university"></i> University of Ghana Medical School</div></div></div>
-<div class="dashboard-grid">
-    <div class="dashboard-card card-summary" onclick="switchTab('summary')"><div class="card-number">{len(samples)}</div><div class="card-label">Total Samples</div><i class="fas fa-vial fa-2x"></i></div>
-    <div class="dashboard-card card-mlst" onclick="switchTab('mlst')"><div class="card-number">{len(patterns.get('st_distribution',{}))}</div><div class="card-label">Unique STs</div><i class="fas fa-code-branch fa-2x"></i></div>
-    <div class="dashboard-card card-serotype" onclick="switchTab('serotype')"><div class="card-number">{len(patterns.get('o_type_distribution',{}))}</div><div class="card-label">O‑types</div><i class="fas fa-tag fa-2x"></i></div>
-    <div class="dashboard-card card-amr" onclick="switchTab('amr')"><div class="card-number">{total_amr}</div><div class="card-label">AMR Genes</div><i class="fas fa-biohazard fa-2x"></i></div>
-    <div class="dashboard-card card-virulence" onclick="switchTab('virulence')"><div class="card-number">{total_vir}</div><div class="card-label">Virulence Genes</div><i class="fas fa-virus fa-2x"></i></div>
-    <div class="dashboard-card card-plasmid" onclick="switchTab('plasmid')"><div class="card-number">{total_plasmid}</div><div class="card-label">Plasmid Replicons</div><i class="fas fa-dna fa-2x"></i></div>
-    <div class="dashboard-card card-bacmet" onclick="switchTab('bacmet')"><div class="card-number">{total_bacmet}</div><div class="card-label">Bacmet2 Genes</div><i class="fas fa-flask fa-2x"></i></div>
-    <div class="dashboard-card card-mutation" onclick="switchTab('mutation')"><div class="card-number">{total_mutations}</div><div class="card-label">Mutations</div><i class="fas fa-dna fa-2x"></i></div>
-</div>
-<div class="tab-navigation">
-    <button class="tab-button summary active" onclick="switchTab('summary')"><i class="fas fa-chart-pie"></i> Summary</button>
-    <button class="tab-button samples" onclick="switchTab('samples')"><i class="fas fa-list-alt"></i> Sample Overview</button>
-    <button class="tab-button qc" onclick="switchTab('qc')"><i class="fas fa-chart-line"></i> FASTA QC</button>
-    <button class="tab-button mlst" onclick="switchTab('mlst')"><i class="fas fa-code-branch"></i> MLST</button>
-    <button class="tab-button serotype" onclick="switchTab('serotype')"><i class="fas fa-tag"></i> O‑Serotype</button>
-    <button class="tab-button amr" onclick="switchTab('amr')"><i class="fas fa-biohazard"></i> AMR</button>
-    <button class="tab-button virulence" onclick="switchTab('virulence')"><i class="fas fa-virus"></i> Virulence</button>
-    <button class="tab-button plasmid" onclick="switchTab('plasmid')"><i class="fas fa-dna"></i> Plasmids</button>
-    <button class="tab-button bacmet" onclick="switchTab('bacmet')"><i class="fas fa-flask"></i> Bacmet2 </button>
-    <button class="tab-button mutation" onclick="switchTab('mutation')"><i class="fas fa-dna"></i> Mutations</button>
-    <button class="tab-button patterns" onclick="switchTab('patterns')"><i class="fas fa-project-diagram"></i> Patterns</button>
-    <button class="tab-button citation" onclick="switchTab('citation')"><i class="fas fa-book"></i> Citation</button>
-    <button class="tab-button guide" onclick="switchTab('guide')"><i class="fas fa-question-circle"></i> Guide</button>
-    <button class="tab-button calltoaction" onclick="switchTab('calltoaction')"><i class="fas fa-globe"></i> Call to Action</button>
-    <button class="tab-button export" onclick="switchTab('export')"><i class="fas fa-download"></i> Export</button>
-</div>
-<div id="summary-tab" class="tab-content active">{self._summary_section(kwargs)}</div>
-<div id="samples-tab" class="tab-content">{self._samples_section(kwargs)}</div>
-<div id="qc-tab" class="tab-content">{self._qc_section(kwargs)}</div>
-<div id="mlst-tab" class="tab-content">{self._mlst_section(kwargs)}</div>
-<div id="serotype-tab" class="tab-content">{self._serotype_section(kwargs)}</div>
-<div id="amr-tab" class="tab-content">{self._sample_centric_section(kwargs, 'amr', 'AMR', ['amrfinder', 'card', 'resfinder', 'ncbi', 'megares', 'argannot'])}</div>
-<div id="virulence-tab" class="tab-content">{self._sample_centric_section(kwargs, 'virulence', 'Virulence', ['vfdb'])}</div>
-<div id="plasmid-tab" class="tab-content">{self._sample_centric_section(kwargs, 'plasmid', 'Plasmids', ['plasmidfinder'])}</div>
-<div id="bacmet-tab" class="tab-content">{self._sample_centric_section(kwargs, 'bacmet', 'Bacmet2', ['bacmet2'])}</div>
-<div id="mutation-tab" class="tab-content">{self._mutation_boxes_section(kwargs)}</div>
-<div id="patterns-tab" class="tab-content">{self._patterns_section(kwargs)}</div>
-<div id="citation-tab" class="tab-content">{self._citation_section()}</div>
-<div id="guide-tab" class="tab-content">{self._guide_section()}</div>
-<div id="calltoaction-tab" class="tab-content">{self._calltoaction_section()}</div>
-<div id="export-tab" class="tab-content">{self._export_section()}</div>
-<div class="footer">
-    <h3>GENIUS P. aeruginosa Sample-Centric Reporter v1.0.0</h3>
-    <p>University of Ghana Medical School | Department of Medical Biochemistry</p>
-    <p>Author: Brown Beckley &lt;brownbeckley94@gmail.com&gt;</p>
-    <p>GitHub: <a href="https://github.com/bbeckley-hub/pseudoscope" target="_blank">https://github.com/bbeckley-hub/pseudoscope</a></p>
-    <p>Generated on {metadata.get('analysis_date','Unknown')}</p>
-</div>
-</div></body></html>"""
-        return html
-
-    def _summary_section(self, kwargs):
-        samples = kwargs['samples_data']
-        patterns = kwargs['patterns']
+    # =========================================================================
+    # SECTIONS
+    # =========================================================================
+    def _sec_summary(self, d):
+        samples = d['samples']
+        P = d['patterns']
+        gc = d['gene_centric']
         total = len(samples)
-        st_unique = len(patterns.get('st_distribution', {}))
-        o_unique = len(patterns.get('o_type_distribution', {}))
-        gene_centric = kwargs['gene_centric']
-        amr_total = sum(len(genes) for genes in gene_centric.get('amr_databases', {}).values())
-        vir_total = sum(len(genes) for genes in gene_centric.get('virulence_databases', {}).values())
-        plasmid_total = sum(len(genes) for genes in gene_centric.get('plasmid_databases', {}).values())
-        bacmet_total = sum(len(genes) for genes in gene_centric.get('bacmet_databases', {}).values())
-        mutation_data = kwargs.get('integrated_data', {}).get('mutation_data', {})
-        mutation_count = len(mutation_data.get('mutations', []))
+        total_amr = sum(len(g) for g in gc.get('amr_databases', {}).values())
+        total_vir = sum(len(g) for g in gc.get('virulence_databases', {}).values())
+        total_plasmid = sum(len(g) for g in gc.get('plasmid_databases', {}).values())
+        total_bacmet = sum(len(g) for g in gc.get('bacmet_databases', {}).values())
+        mutation_details = d.get('mutation_details', {})
+        n_mut = sum(len(v) for v in mutation_details.values())
+        mge_details = d.get('mge_details', {})
+        n_mge_samples = len(mge_details)
+        mge_hits_total = sum(len(v) for v in mge_details.values())
 
-        features = [
-            ("🧬 Sample-Centric Boxes", "Each isolate is displayed in its own box with typing badges (ST, O‑type) and detailed tables for AMR, Virulence, Plasmids, Bacmet, and Mutations."),
-            ("🔗 Dynamic Grouping", "Group genomes by MLST, O‑type, or ST‑O combinations to instantly see which clones harbour specific genes or mutations."),
-            ("📚 Comprehensive Database Integration", "Combines AMRfinder, ABRicate (CARD, ResFinder, VFDB, PlasmidFinder, BacMet2, etc.) for maximum sensitivity and consensus."),
-            ("🔍 Interactive Filters", "Filter sample boxes by isolate name or by database to focus on specific datasets."),
-            ("🧩 ST‑O Combination Analysis", "Identify epidemic clones and their associated resistance/virulence profiles."),
-            ("📊 FASTA QC Metrics", "Assembly quality (N50, contig count) ensures reliable gene calls."),
-            ("🧬 Mutation Tracking", "Point mutations in gyrA, parC, rpoB, 23S rRNA, etc. – detect resistance even without acquired genes."),
-            ("📤 Export & AI‑Ready", "Export any table as CSV or download the complete JSON for upload to ChatGPT, Claude, or Gemini for further analysis."),
-        ]
-
-        feature_html = ""
-        colours = ['#e3f2fd', '#e8f5e9', '#fff3e0', '#fce4ec', '#f3e5f5', '#e0f7fa', '#fff8e1', '#fbe9e7']
-        for i, (title, desc) in enumerate(features):
-            colour = colours[i % len(colours)]
-            feature_html += f'''
-            <div class="feature-item" style="background: {colour}; border-left-color: var(--brown);">
-                <h4><i class="fas fa-{title.split()[0].lower()}"></i> {title}</h4>
-                <p>{desc}</p>
-            </div>
-            '''
-
-        return f"""
-        <div class="scientific-note"><i class="fas fa-flask"></i> <strong>Why this matters – Surveillance of <em>P. aeruginosa</em></strong><br>
-        <em>Pseudomonas aeruginosa</em> is a leading cause of healthcare‑associated infections, especially in immunocompromised patients, cystic fibrosis, and burn wounds. 
-        It exhibits both intrinsic and acquired resistance to many antibiotics, and its virulence arsenal (T3SS, exotoxin A, biofilms) makes infections difficult to treat.
-        <br><br>
-        This report provides a sample‑centric view – each isolate is presented in its own box with typing badges and detailed gene/mutation tables. This allows rapid assessment of individual isolates and their resistance/virulence profiles.
-        </div>
-        <div class="alert-box alert-info"><i class="fas fa-info-circle fa-2x"></i><div><h3>Analysis Overview</h3><p>Sample‑centric report for <strong>{total}</strong> P. aeruginosa genomes. Each isolate has its own box with typing badges and detailed tables. Use the sample box tabs to explore AMR, virulence, plasmids, bacmet, and mutations per isolate.</p></div></div>
-        <div class="action-buttons">
-            <button class="action-btn btn-primary" onclick="switchTab('amr')"><i class="fas fa-biohazard"></i> View AMR Boxes</button>
-            <button class="action-btn btn-success" onclick="switchTab('virulence')"><i class="fas fa-virus"></i> View Virulence Boxes</button>
-            <button class="action-btn btn-info" onclick="switchTab('plasmid')"><i class="fas fa-dna"></i> View Plasmid Boxes</button>
-            <button class="action-btn btn-secondary" onclick="switchTab('bacmet')"><i class="fas fa-flask"></i> View Bacmet Boxes</button>
-            <button class="action-btn btn-warning" onclick="switchTab('mutation')"><i class="fas fa-dna"></i> View Mutation Boxes</button>
-        </div>
-        <h3>Key Statistics</h3>
-        <div class="scrollable-table"><table id="summary-stats" class="data-table"><thead><tr><th data-sort="string">Metric</th><th data-sort="string">Count</th><th>Details</th></tr></thead><tbody>
-        <tr><td>Total Samples</td><td><strong>{total}</strong></td><td>Complete genomic analysis</td></tr>
-        <tr><td>Unique STs</td><td><strong>{st_unique}</strong></td><td>MLST</td></tr>
-        <tr><td>Unique O‑types</td><td><strong>{o_unique}</strong></td><td>PAST serotyping</td></tr>
-        <tr><td>AMR Genes</td><td><strong>{amr_total}</strong></td><td>All databases (AMRfinder + ABRicate)</td></tr>
-        <tr><td>Virulence Genes</td><td><strong>{vir_total}</strong></td><td>VFDB</td></tr>
-        <tr><td>Plasmid Replicons</td><td><strong>{plasmid_total}</strong></td><td>PlasmidFinder database</td></tr>
-        <tr><td>Bacmet2 Genes</td><td><strong>{bacmet_total}</strong></td><td>Biocide & heavy metal resistance</td></tr>
-        <tr><td>Unique Mutations</td><td><strong>{mutation_count}</strong></td><td>AMRfinderPlus point mutations</td></tr>
-        </tbody></table></div>
-        <h3>✨ Key Features of This Report</h3>
-        <div class="features-grid">{feature_html}</div>
-        """
-
-    def _samples_section(self, kwargs):
-        samples = kwargs['samples_data']
-        qc_data = kwargs.get('qc_data', {})
-        html = """
-        <div class="scientific-note"><i class="fas fa-database"></i> <strong>Population Structure Overview</strong><br>
-        Understanding the genetic background of your <em>P. aeruginosa</em> isolates is critical for outbreak tracking and risk assessment.
-        <ul>
-            <li><strong>MLST (Sequence Type)</strong>: Multilocus sequence typing defines STs. High‑risk clones (e.g., ST111, ST235, ST244, ST277) are often associated with carbapenem resistance and severe infections.</li>
-            <li><strong>O‑Serotype</strong>: The lipopolysaccharide O‑antigen is a vaccine target. Prevalent types include O1, O2, O5, O6, O11. Serotype O11 is linked to epidemic clones.</li>
-            <li><strong>N50</strong>: A key assembly quality metric (the shortest contig length such that half the genome is in contigs of that size or larger). Higher N50 = better assembly.</li>
-            <li><strong>Virulence Count</strong>: Number of detected virulence genes from VFDB. Higher counts may indicate greater pathogenic potential.</li>
-        </ul>
-        </div>
-        <input type="text" class="search-box" id="search-samples" onkeyup="searchTable('samples-table','search-samples')" placeholder="🔍 Search samples...">
-        <div class="action-buttons"><button class="action-btn btn-primary" onclick="exportTableToCSV('samples-table','sample_overview.csv')"><i class="fas fa-download"></i> Export CSV</button></div>
-        <div class="scrollable-table"><table id="samples-table" class="data-table"><thead><tr><th data-sort="string">Sample</th><th data-sort="string">ST</th><th data-sort="string">O‑Type</th><th data-sort="number">N50</th><th data-sort="number">Virulence Count</th></tr></thead><tbody>
-        """
-        for sample, data in samples.items():
-            st = data.get('mlst',{}).get('ST','ND')
-            o_type = data.get('serotype',{}).get('O_Type','ND')
-            n50 = qc_data.get(sample, {}).get('N50', 'ND')
-            if isinstance(n50, float):
-                n50 = f"{n50:,.0f}"
-            vir_cnt = len(data.get('virulence_genes',[]))
-            html += f'<tr><td><strong>{sample}</strong></td><td>{st}</td><td>{o_type}</td><td>{n50}</td><td>{vir_cnt}</td></tr>'
-        html += '</tbody></table></div>'
-        return html
-
-    def _qc_section(self, kwargs):
-        qc_data = kwargs.get('qc_data', {})
-        if not qc_data:
-            return '<div class="alert-box alert-warning"><i class="fas fa-exclamation-circle"></i><div>No FASTA QC data found.</div></div>'
-
-        html = """
-        <div class="scientific-note" style="background: linear-gradient(135deg, #f8f9fa 0%, #d1ecf1 100%); border-left: 6px solid #17a2b8; margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                <span style="font-size: 1.4em;">🐍</span>
-                <div>
-                    <strong style="font-size: 1.2em; color: #0c5460;">FASTA QC – Powered by Biopython</strong><br>
-                    <span style="font-size: 0.95em; color: #333;">
-                        <strong>Biopython</strong> by <a href="https://biopython.org/" target="_blank" style="color: #17a2b8; font-weight: bold;">The Biopython Consortium</a> 
-                        <i class="fas fa-arrow-right"></i> Used for parsing FASTA files and computing quality metrics (GC%, N50, contig counts, etc.).
-                        <br>
-                        <span style="color: #6c757d;">Biopython is an open‑source toolkit for computational biology, essential for robust and reproducible assembly QC.</span>
-                    </span>
-                </div>
-            </div>
-        </div>
-        """
-
-        html += """
-        <div class="scientific-note"><i class="fas fa-chart-line"></i> <strong>FASTA Quality Control – Why It Matters</strong><br>
-        Assembly quality directly affects gene detection. Poor assemblies (low N50, high contig count) may miss genes or create false positives.
-        <ul>
-            <li><strong>N50</strong>: Ideally >20 kb for accurate gene annotation.</li>
-            <li><strong>Contig count</strong>: Fewer contigs (e.g., <200) indicate a more complete assembly.</li>
-            <li><strong>GC%</strong>: <em>P. aeruginosa</em> typically 66–67%. Deviations may indicate contamination.</li>
-        </ul>
-        </div>
-        <input type="text" class="search-box" id="search-qc" onkeyup="searchTable('qc-table','search-qc')" placeholder="🔍 Search sample...">
-        <div class="scrollable-table"><table id="qc-table" class="data-table"><thead><tr><th data-sort="string">Sample</th>"""
-        metrics = set()
-        for d in qc_data.values():
-            metrics.update(d.keys())
-        metrics = sorted(metrics)
-
-        for m in metrics:
-            html += f'<th data-sort="number">{m}</th>'
-        html += '</tr></thead><tbody>'
-        for sample, vals in sorted(qc_data.items()):
-            html += f'<tr><td><strong>{sample}</strong></td>'
-            for m in metrics:
-                v = vals.get(m, 'ND')
-                if isinstance(v, float):
-                    v = f"{v:,.0f}" if v > 1000 else f"{v:.2f}"
-                html += f'<td>{v}</td>'
-            html += '</tr>'
-        html += '</tbody></table></div>'
-        return html
-
-    def _mlst_section(self, kwargs):
-        patterns = kwargs['patterns']
-        st_dist = patterns.get('st_distribution', Counter())
-        st_to_samples = patterns.get('st_to_samples', defaultdict(list))
-        total = sum(st_dist.values())
-
-        html = """
-        <div class="scientific-note" style="background: linear-gradient(135deg, #f8f9fa 0%, #cce5ff 100%); border-left: 6px solid #007bff; margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                <span style="font-size: 1.4em;">🧬</span>
-                <div>
-                    <strong style="font-size: 1.2em; color: #004085;">MLST – Powered by PubMLST & Seemann's MLST Scripts</strong><br>
-                    <span style="font-size: 0.95em; color: #333;">
-                        <strong>PubMLST</strong> database by <a href="https://pubmlst.org/" target="_blank" style="color: #007bff; font-weight: bold;">Keith Jolley & the PubMLST team</a> 
-                        <i class="fas fa-arrow-right"></i> Typing schemes integrated via 
-                        <a href="https://github.com/tseemann/mlst" target="_blank" style="color: #dc3545; font-weight: bold;">Seemann's MLST scripts</a>.
-                        <br>
-                        <span style="color: #6c757d;">
-                            <i class="fas fa-exclamation-triangle" style="color: #ffc107;"></i> 
-                            <strong>Important:</strong> Due to licensing restrictions on the PubMLST database, we cannot include alleles added after <strong>December 31, 2024</strong>. 
-                            To use the latest alleles, you can update your local database by following the 
-                            <a href="https://github.com/tseemann/mlst#updating-the-databases" target="_blank" style="color: #007bff;">instructions from Seemann's MLST</a>. 
-                        </span>
-                    </span>
-                </div>
-            </div>
-        </div>
-        """
-
-        html += """
-        <div class="scientific-note"><i class="fas fa-code-branch"></i> <strong>MLST – Tracking High‑Risk Clones</strong><br>
-        Multi‑locus sequence typing uses seven housekeeping genes (<em>acsA, aroE, guaA, mutL, nuoD, ppsA, trpE</em>). 
-        Globally disseminated high‑risk clones include:
-        <ul>
-            <li><strong>ST111</strong>: Often carries VIM‑2 carbapenemase and ExoU; associated with ventilator‑associated pneumonia.</li>
-            <li><strong>ST235</strong>: Major carbapenemase producer (KPC, NDM, VIM) with ExoU; pandemic clone.</li>
-            <li><strong>ST244</strong>: Common in environmental and some clinical settings; often less virulent.</li>
-            <li><strong>ST277</strong>: Associated with multidrug resistance and cystic fibrosis.</li>
-        </ul>
-        </div>
-        <h3>ST Distribution (Counts)</h3>
-        <input type="text" class="search-box" id="search-mlst-counts" onkeyup="searchTable('mlst-counts-table','search-mlst-counts')" placeholder="🔍 Search ST...">
-        <div class="scrollable-table"><table id="mlst-counts-table" class="data-table"><thead><tr><th data-sort="string">ST</th><th data-sort="number">Count</th><th data-sort="number">Percentage</th><th data-sort="string">Associated O‑types</th></tr></thead><tbody>
-        """
-        for st, cnt in st_dist.most_common():
-            pct = cnt/total*100
-            o_types = set()
-            for combo in patterns.get('st_o_combinations',{}):
-                if f"{st} - " in combo:
-                    o_types.add(combo.split(" - ")[1])
-            o_str = ', '.join(o_types) if o_types else 'ND'
-            html += f'<tr><td><strong>{st}</strong></td><td>{cnt}</td><td>{pct:.1f}%</td><td>{o_str}</td></tr>'
-        html += '</tbody></table></div>'
-
-        html += """
-        <h3>ST-Sample List</h3>
-        <p>Each ST is shown with all samples that belong to it. Use the search box to highlight specific samples across the table.</p>
-        <input type="text" class="search-box" id="search-mlst-tags" onkeyup="highlightGenome('mlst-tags-table','search-mlst-tags')" placeholder="🔍 Highlight sample...">
-        <div class="scrollable-table"><table id="mlst-tags-table" class="data-table"><thead>
-        <tr><th data-sort="string">ST</th><th data-sort="number">Count</th><th data-sort="string">Samples</th>
-        </thead><tbody>
-        """
-        for st, samples_list in sorted(st_to_samples.items(), key=lambda x: len(x[1]), reverse=True):
-            genome_tags = ''.join(f'<span class="genome-tag">{s}</span>' for s in samples_list)
-            html += f'<tr><td><strong>{st}</strong></td><td>{len(samples_list)}</td><td><div class="genome-list">{genome_tags}</div></td></tr>'
-        html += '</tbody></table></div>'
-        return html
-
-    def _serotype_section(self, kwargs):
-        patterns = kwargs['patterns']
-        samples = kwargs['samples_data']
-        o_dist = patterns.get('o_type_distribution', Counter())
-        total = sum(o_dist.values())
-        html = f"""
-        <div class="scientific-note"><i class="fas fa-tag"></i> <strong>O‑Serotype (PAST) – A Vaccine Target</strong><br>
-        The O‑antigen is a major surface antigen and a component of the investigational vaccine for <em>P. aeruginosa</em>. 
-        Common serotypes in clinical isolates include O1, O2, O5, O6, and O11. Serotype O11 is often associated with epidemic multidrug‑resistant clones.
-        <br><br>
-        Knowing the serotype distribution can guide vaccine development and infection control.
-        <br><br>
-        <span style="font-size: 0.9em; color: #666;"><i class="fas fa-code-branch"></i> PAST tool originally developed by the Technical University of Denmark (CGE). This implementation uses <strong>pasty</strong> by <a href="https://github.com/rpetit3/pasty" target="_blank" style="color: #dc3545;">Dr. Robert A. Petit III</a>, which makes the original PAst tool more user‑friendly and accessible for genomic surveillance. <a href="https://cge.food.dtu.dk/services/PAst/" target="_blank" style="color: #dc3545;">Original PAst‑1.0</a></span>
-        </div>
-        <div class="alert-box alert-info"><i class="fas fa-info-circle"></i><div><h3>O‑Type Distribution with Genome Tags</h3><p>Each O‑type is shown with all samples as genome tags. Use the search box to highlight specific isolates across the table.</p></div></div>
-        <input type="text" class="search-box" id="search-serotype" onkeyup="highlightGenome('serotype-table','search-serotype')" placeholder="🔍 Highlight genome tags in O‑type table...">
-        <div class="scrollable-table"><table id="serotype-table" class="data-table"><thead><tr><th data-sort="string">O‑Type</th><th data-sort="number">Count</th><th data-sort="number">Percentage</th><th data-sort="string">Sample</th></tr></thead><tbody>
-        """
-        for o, cnt in o_dist.most_common():
-            if o == 'ND':
-                continue
-            pct = cnt/total*100
-            sample_list = [s for s, d in samples.items() if d.get('serotype', {}).get('O_Type') == o]
-            genome_tags = ''.join(f'<span class="genome-tag">{s}</span>' for s in sample_list)
-            html += f'<tr><td><strong>{o}</strong></td><td>{cnt}</td><td>{pct:.1f}%</td><td><div class="genome-list">{genome_tags}</div></td></tr>'
-        html += '</tbody></table></div>'
-        return html
-
-    def _grouping_controls(self, table_id: str) -> str:
-        return f"""
-        <div class="grouping-controls">
-            <strong><i class="fas fa-layer-group"></i> Group genomes by:</strong>
-            <button class="group-btn" data-group="ST" onclick="groupGenomesByTyping('{table_id}', 'ST')">MLST (ST)</button>
-            <button class="group-btn" data-group="Otype" onclick="groupGenomesByTyping('{table_id}', 'Otype')">O‑type</button>
-            <button class="group-btn" data-group="ST-O" onclick="groupGenomesByTyping('{table_id}', 'ST-O')">ST‑O</button>
-            <button class="group-btn" onclick="resetGenomeList('{table_id}')">Reset (flat list)</button>
-        </div>
-        """
-
-    def _sample_centric_section(self, kwargs, tab_id, title, db_list):
-        samples_data = kwargs.get('samples_data', {})
-        amr_details = kwargs.get('integrated_data', {}).get('amr_details', {})
-        abricate_details = kwargs.get('integrated_data', {}).get('abricate_details', {})
-
-        relevant_samples = []
-        for sample in samples_data:
-            has_data = False
-            if 'amrfinder' in db_list and sample in amr_details and amr_details[sample]:
-                has_data = True
-            for db in db_list:
-                if db != 'amrfinder' and sample in abricate_details and db in abricate_details[sample] and abricate_details[sample][db]:
-                    has_data = True
-            if has_data:
-                relevant_samples.append(sample)
-        relevant_samples.sort()
-
-        if not relevant_samples:
-            return f"""
-            <div class="alert-box alert-warning">
-                <i class="fas fa-exclamation-circle fa-2x"></i>
-                <div><h3>No {title} Data Available</h3><p>No samples with {title} genes were found. Please check that the corresponding TSV files exist and contain data.</p></div>
-            </div>
-            """
-
-        html = f"""
-        <div class="scientific-note" style="background: linear-gradient(135deg, #f8f9fa 0%, #fff3cd 100%); border-left: 6px solid #17a2b8; margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                <span style="font-size: 1.4em;">🧬</span>
-                <div>
-                    <strong style="font-size: 1.2em; color: #0c5460;">{title} Detection – Powered by ABRicate & AMRFinderPlus</strong><br>
-                    <span style="font-size: 0.95em; color: #333;">
-                        <strong>ABRicate</strong> by <a href="https://github.com/tseemann/abricate" target="_blank" style="color: #dc3545; font-weight: bold;">Prof. Torsten Seemann</a> 
-                        <i class="fas fa-arrow-right"></i> Integrated with multiple databases.
-                        <br>
-                        <strong>AMRFinderPlus</strong> by <a href="https://github.com/ncbi/amr" target="_blank" style="color: #dc3545; font-weight: bold;">NCBI</a> 
-                        <i class="fas fa-arrow-right"></i> Comprehensive resistance gene and point mutation detection.
-                        <br>
-                        <span style="color: #6c757d;">Isolate-centric view of your data</span>
-                    </span>
-                </div>
-            </div>
-        </div>
+        return f'''
         <div class="alert-box alert-info">
             <i class="fas fa-info-circle fa-2x"></i>
             <div>
-                <h3>🧬 {title} – Interactive Sample Boxes</h3>
-                <p>Each box represents one isolate. Inside, you will find separate tables for each database with full gene details – horizontally scrollable.</p>
-                <p>Use the filters below to search by sample name or to show only a specific database.</p>
+                <h3>📊 Analysis Overview</h3>
+                <p>This report analyses <strong>{total}</strong> <em>Pseudomonas aeruginosa</em> genomes.</p>
+                <ul>
+                    <li><strong>Sample Overview</strong> — every isolate on one row with typing summary.</li>
+                    <li><strong>Sample-centric, lazy-loaded</strong> gene tabs (AMR, Virulence, Plasmids, Bacmet2, Mutations, MGE) — each isolate in its own collapsed box; tables built on click. <strong>Browser-safe on 1000+ samples.</strong></li>
+                </ul>
             </div>
         </div>
-        <div class="filter-controls">
-            <input type="text" class="search-box" id="search-{tab_id}" onkeyup="filterBoxes('{tab_id}')" placeholder="🔍 Search sample...">
-            <select id="dbFilter-{tab_id}" onchange="filterBoxes('{tab_id}')">
-                <option value="all">All Databases</option>
-        """
-        for db in db_list:
-            display = db.upper()
-            if db == 'amrfinder':
-                display = 'AMRfinder'
-            html += f'<option value="{db}">{display}</option>'
-        html += f"""
-            </select>
-            <button class="action-btn btn-success" onclick="resetBoxFilters('{tab_id}')"><i class="fas fa-sync"></i> Clear Filters</button>
-        </div>
-        <div id="box-container-{tab_id}">
-        """
-
-        for sample in relevant_samples:
-            typing = samples_data.get(sample, {}).get('typing', {})
-            mlst = samples_data.get(sample, {}).get('mlst', {}).get('ST', 'ND')
-            otype = samples_data.get(sample, {}).get('serotype', {}).get('O_Type', 'ND')
-
-            html += f'<div class="sample-box" data-sample="{sample}">'
-            total_genes = 0
-            if 'amrfinder' in db_list and sample in amr_details:
-                total_genes += len(amr_details[sample])
-            for db in db_list:
-                if db != 'amrfinder' and sample in abricate_details and db in abricate_details[sample]:
-                    total_genes += len(abricate_details[sample][db])
-            html += f"""
-                <div class="sample-header">
-                    <h3><i class="fas fa-microbe"></i> {sample}</h3>
-                    <span class="total-badge">Total Genes: {total_genes}</span>
-                    <div class="typing-info">
-                        <span class="typing-badge">ST: {mlst}</span>
-                        <span class="typing-badge">O-Type: {otype}</span>
-                    </div>
-                </div>
-            """
-
-            if 'amrfinder' in db_list and sample in amr_details and amr_details[sample]:
-                html += self._make_database_table('AMRfinder', amr_details[sample], 'amrfinder')
-
-            for db in db_list:
-                if db == 'amrfinder':
-                    continue
-                if sample in abricate_details and db in abricate_details[sample] and abricate_details[sample][db]:
-                    html += self._make_database_table(db.upper(), abricate_details[sample][db], db)
-
-            html += '</div>'
-
-        html += """
-        </div>
-        """
-        return html
-
-    def _make_database_table(self, db_name: str, genes: List[Dict], db_key: str) -> str:
-        if not genes:
-            return ''
-        keys = list(genes[0].keys()) if genes else []
-        priority = ['gene', 'product', 'coverage_percent', 'identity_percent', 'accession', 'contig', 'start', 'stop', 'class', 'subclass', 'scope', 'resistance']
-        ordered = []
-        for p in priority:
-            if p in keys:
-                ordered.append(p)
-        for k in keys:
-            if k not in ordered:
-                ordered.append(k)
-
-        html = f"""
-                <div class="database-table-wrapper" data-db="{db_key}">
-                    <div class="db-title">{db_name}</div>
-                    <table>
-                        <thead>
-                            <tr>
-        """
-        for col in ordered:
-            display = col.replace('_', ' ').title()
-            html += f'<th>{display}</th>'
-        html += '</tr></thead><tbody>'
-        for gene_dict in genes:
-            html += '<tr>'
-            for col in ordered:
-                val = gene_dict.get(col, '')
-                if val is None:
-                    val = ''
-                html += f'<td>{val}</td>'
-            html += '</tr>'
-        html += """
-                        </tbody>
-                    </table>
-                </div>
-        """
-        return html
-
-    def _mutation_boxes_section(self, kwargs):
-        samples_data = kwargs.get('samples_data', {})
-        integrated_data = kwargs.get('integrated_data', {})
-        mutation_details = integrated_data.get('mutation_details', {})
-        relevant_samples = [s for s in samples_data if s in mutation_details and mutation_details[s]]
-        relevant_samples.sort()
-
-        if not relevant_samples:
-            return """
-            <div class="alert-box alert-warning">
-                <i class="fas fa-exclamation-circle fa-2x"></i>
-                <div><h3>No Mutation Data Available</h3><p>No mutations found for any sample. Please check that pseudo_mutation_summary.tsv exists and contains data.</p></div>
-            </div>
-            """
-
-        html = f"""
-        <div class="scientific-note" style="background: linear-gradient(135deg, #f8f9fa 0%, #d1ecf1 100%); border-left: 6px solid #17a2b8; margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                <span style="font-size: 1.4em;">🧬</span>
-                <div>
-                    <strong style="font-size: 1.2em; color: #0c5460;">Point Mutations – Powered by AMRFinderPlus</strong><br>
-                    <span style="font-size: 0.95em; color: #333;">
-                        <strong>AMRFinderPlus</strong> by <a href="https://github.com/ncbi/amr" target="_blank" style="color: #dc3545; font-weight: bold;">NCBI</a> 
-                        <i class="fas fa-arrow-right"></i> Detects point mutations in key resistance genes (gyrA, parC, rpoB, 23S rRNA, etc.).
-                        <br>
-                        <span style="color: #6c757d;">Isolate-centric view of your data.</span>
-                    </span>
-                </div>
-            </div>
-        </div>
-        <div class="alert-box alert-info">
-            <i class="fas fa-dna fa-2x"></i>
-            <div>
-                <h3>🧬 Point Mutations – Sample‑Centric Boxes</h3>
-                <p>Each box represents one isolate. Inside, you will find a table of all detected point mutations with full details – horizontally scrollable.</p>
-                <p>Use the search bar below to filter boxes by sample name.</p>
-            </div>
-        </div>
-        <div class="filter-controls">
-            <input type="text" class="search-box" id="search-mutation" onkeyup="filterBoxes('mutation')" placeholder="🔍 Search sample...">
-            <button class="action-btn btn-success" onclick="resetBoxFilters('mutation')"><i class="fas fa-sync"></i> Clear Filters</button>
-        </div>
-        <div id="box-container-mutation">
-        """
-
-        for sample in relevant_samples:
-            typing = samples_data.get(sample, {}).get('typing', {})
-            mlst = samples_data.get(sample, {}).get('mlst', {}).get('ST', 'ND')
-            otype = samples_data.get(sample, {}).get('serotype', {}).get('O_Type', 'ND')
-            mutations = mutation_details.get(sample, [])
-            total_mutations = len(mutations)
-
-            html += f'<div class="sample-box" data-sample="{sample}">'
-            html += f"""
-                <div class="sample-header">
-                    <h3><i class="fas fa-microbe"></i> {sample}</h3>
-                    <span class="total-badge">Total Mutations: {total_mutations}</span>
-                    <div class="typing-info">
-                        <span class="typing-badge">ST: {mlst}</span>
-                        <span class="typing-badge">O-Type: {otype}</span>
-                    </div>
-                </div>
-            """
-
-            if mutations:
-                html += self._make_mutation_table(mutations)
-
-            html += '</div>'
-
-        html += """
-        </div>
-        """
-        return html
-
-    def _make_mutation_table(self, mutations: List[Dict]) -> str:
-        if not mutations:
-            return ''
-        cols = ['gene', 'mutation', 'class', 'subclass', 'contig', 'start', 'stop', 'strand', 'coverage', 'identity', 'accession']
-        html = """
-        <div class="database-table-wrapper" data-db="mutations">
-            <div class="db-title">Mutations</div>
-            <table>
-                <thead>
-                    <tr>
-        """
-        for col in cols:
-            display = col.replace('_', ' ').title()
-            html += f'<th>{display}</th>'
-        html += '</tr></thead><tbody>'
-        for mut in mutations:
-            html += '<tr>'
-            for col in cols:
-                val = mut.get(col, '')
-                if val is None or (isinstance(val, float) and val != val):
-                    val = ''
-                html += f'<td>{val}</td>'
-            html += '</tr>'
-        html += """
+        <h3>Key Statistics</h3>
+        <div class="scrollable-table">
+            <table class="data-table">
+                <thead><tr><th>Metric</th><th>Count</th><th>Notes</th></tr></thead>
+                <tbody>
+                    <tr><td>Total Samples</td><td><strong>{total}</strong></td><td>Complete genomic analysis</td></tr>
+                    <tr><td>Unique STs</td><td><strong>{len(P.get('mlst_distribution', {}))}</strong></td><td>MLST Pasteur scheme</td></tr>
+                    <tr><td>Unique O-Types</td><td><strong>{len(P.get('o_type_distribution', {}))}</strong></td><td>PAST serotyping</td></tr>
+                    <tr><td>AMR genes (unique)</td><td><strong>{total_amr}</strong></td><td>All AMR databases</td></tr>
+                    <tr><td>Virulence genes (unique)</td><td><strong>{total_vir}</strong></td><td>VFDB</td></tr>
+                    <tr><td>Plasmid replicons</td><td><strong>{total_plasmid}</strong></td><td>PlasmidFinder</td></tr>
+                    <tr><td>Bacmet2 genes</td><td><strong>{total_bacmet}</strong></td><td>Biocide &amp; metal resistance</td></tr>
+                    <tr><td>Total mutation events</td><td><strong>{n_mut}</strong></td><td>AMRFinderPlus point mutations</td></tr>
+                    <tr><td>MGE-profiled samples</td><td><strong>{n_mge_samples}</strong></td><td>mobileOG-db hits: {mge_hits_total}</td></tr>
                 </tbody>
             </table>
         </div>
-        """
-        return html
+        <h3 style="margin-top:24px;">📘 How to Use the Isolate Boxes</h3>
+        <ol style="margin-left:20px;">
+            <li>Open any gene-centric tab (AMR, Virulence, Plasmids, Bacmet2, Mutations, MGE).</li>
+            <li>Each isolate shows a header (sample name, count, typing badges).</li>
+            <li>Click <strong>Show Details</strong> inside a box to load its tables on demand.</li>
+            <li>Filter by sample name (search box) or by database (dropdown).</li>
+            <li>Use <strong>Expand All (visible)</strong> for batched, non-blocking expansion.</li>
+        </ol>'''
 
-    def _patterns_section(self, kwargs):
-        patterns = kwargs['patterns']
-        html = """
-        <div class="scientific-note"><i class="fas fa-project-diagram"></i> <strong>Cross‑Genome Patterns – Tracking Clones and Co‑occurrence</strong><br>
-        This section shows:
-        <ul>
-            <li><strong>ST‑O combination table</strong>: Which Sequence Types are associated with which O‑serotypes? Certain ST‑O pairs (e.g., ST235‑O11) define epidemic clones.</li>
-            <li><strong>Gene co‑occurrence</strong>: Which pairs of genes (AMR, virulence, plasmid, bacmet) are frequently found together in the same genome. High co‑occurrence may indicate co‑selection or physical linkage (e.g., on the same plasmid).</li>
-        </ul>
-        Use these tables to identify outbreak clones and potential co‑selection risks.
+    def _sec_sample_overview(self, d):
+        samples = d['samples']
+        rows = ''
+        for sample, data in sorted(samples.items()):
+            t = data.get('typing', {})
+            mlst = t.get('MLST', 'ND')
+            otype = t.get('O_Type', 'ND')
+            t3ss = t.get('T3SS', 'ND')
+            vir_count = 0
+            for db in ('vfdb', 'ecoli_vf'):
+                vir_count += len(data.get('abricate_databases', {}).get(db, []))
+            t3ss_class = ('t3ss-exou' if t3ss == 'ExoU'
+                          else 't3ss-exos' if t3ss == 'ExoS'
+                          else 't3ss-both' if t3ss == 'ExoU+ExoS'
+                          else 't3ss-neither')
+            rows += f'''<tr>
+                <td><strong>{esc(sample)}</strong></td>
+                <td>{esc(mlst)}</td>
+                <td>{esc(otype)}</td>
+                <td><span class="typing-badge {t3ss_class}">{esc(t3ss)}</span></td>
+                <td>{vir_count}</td>
+            </tr>'''
+
+        return f'''
+        {self._alert('info', 'fa-list-alt',
+            '<h3>🧬 Sample Overview – Population Snapshot</h3>'
+            '<p>Master reference table showing MLST, O-type, T3SS pathotype, and virulence gene count for every isolate.</p>')}
+        <input type="text" class="search-box" id="search-samples-table"
+               onkeyup="searchTable('samples-table','search-samples-table')"
+               placeholder="🔍 Search samples...">
+        <div class="action-buttons">
+            <button class="action-btn btn-primary" onclick="exportTableToCSV('samples-table','sample_overview.csv')">
+                <i class="fas fa-download"></i> Export CSV</button>
         </div>
-        <div class="alert-box alert-info"><i class="fas fa-table"></i><div><h3>ST‑O Combination Table</h3><p>Each combination of Sequence Type and O‑serotype with the list of samples as tags. Use the search box to highlight specific isolates.</p></div></div>
-        <input type="text" class="search-box" id="search-sto" onkeyup="highlightGenome('sto-table','search-sto')" placeholder="🔍 Highlight sample in ST-O combinations...">
-        <div class="scrollable-table"><table id="sto-table" class="data-table"><thead><tr><th data-sort="string">ST - O</th><th data-sort="number">Count</th><th data-sort="string">Samples</th></tr></thead><tbody>
-        """
-        sto = patterns.get('st_o_combinations', {})
-        for combo, samples_list in sorted(sto.items(), key=lambda x: len(x[1]), reverse=True):
-            genome_tags = ''.join(f'<span class="genome-tag">{s}</span>' for s in samples_list)
-            html += f'<tr><td><strong>{combo}</strong></td><td>{len(samples_list)}</td><td><div class="genome-list">{genome_tags}</div></td></tr>'
-        html += '</tbody></table></div>'
+        <div class="scrollable-table">
+            <table id="samples-table" class="data-table">
+                <thead><tr>
+                    <th data-sort="string">Sample</th>
+                    <th data-sort="string">MLST</th>
+                    <th data-sort="string">O-Type</th>
+                    <th data-sort="string">T3SS Pathotype</th>
+                    <th data-sort="number">Virulence Count</th>
+                </tr></thead>
+                <tbody>{rows}</tbody>
+            </table>
+        </div>'''
 
-        cooc = patterns.get('gene_cooccurrence', {})
-        cooc_list = []
-        for g1, partners in cooc.items():
-            for g2, cnt in partners.items():
-                if g1 < g2:
-                    cooc_list.append((g1, g2, cnt))
-        cooc_list.sort(key=lambda x: x[2], reverse=True)
-        if cooc_list:
-            html += '<h3>Top 100 Gene Co‑occurrences</h3>'
-            html += '<input type="text" class="search-box" id="search-cooc" onkeyup="searchTable(\'cooc-table\',\'search-cooc\')" placeholder="🔍 Search co‑occurrence pairs...">'
-            html += '<div class="scrollable-table"><table id="cooc-table" class="data-table"><thead><tr><th data-sort="string">Gene 1</th><th data-sort="string">Gene 2</th><th data-sort="number">Co‑occurrence Count</th></tr></thead><tbody>'
-            for g1, g2, cnt in cooc_list[:100]:
-                html += f'<tr><td>{g1}</td><td>{g2}</td><td>{cnt}</td></tr>'
-            html += '</tbody></table></div>'
-        else:
-            html += '<p>No gene co‑occurrence data available.</p>'
+    def _gen_sample_boxes(self, d, tab_id, title, db_list):
+        samples = d.get('samples', {})
+        amr_details = d.get('amrfinder_details', {})
+        abricate_details = d.get('abricate_details', {})
+
+        relevant = []
+        for sample in samples:
+            has = False
+            if 'amrfinder' in db_list and amr_details.get(sample):
+                has = True
+            for db in db_list:
+                if db != 'amrfinder' and abricate_details.get(sample, {}).get(db):
+                    has = True
+            if has:
+                relevant.append(sample)
+        relevant.sort()
+
+        if not relevant:
+            return self._alert('warning', 'fa-exclamation-circle',
+                f'<h3>No {title} Data Available</h3><p>No samples with {title} genes were found.</p>')
+
+        box_data = {}
+        for sample in relevant:
+            entry = {'amrfinder': [], 'abricate': {}}
+            if 'amrfinder' in db_list:
+                entry['amrfinder'] = amr_details.get(sample, [])
+            for db in db_list:
+                if db != 'amrfinder':
+                    entry['abricate'][db] = abricate_details.get(sample, {}).get(db, [])
+            box_data[sample] = entry
+        box_json = json.dumps(box_data, default=str, ensure_ascii=False)
+
+        db_options = '<option value="all">All Databases</option>'
+        for db in db_list:
+            disp = 'AMRfinder' if db == 'amrfinder' else db.upper()
+            db_options += f'<option value="{db}">{disp}</option>'
+
+        html = f'''
+        {self._alert('info', 'fa-info-circle',
+            f'<h3>🧬 {title} – Interactive Isolate Boxes (Lazy-Loaded)</h3>'
+            '<p>Each box shows one isolate. Click <strong>Show Details</strong> to load its tables on demand — the report opens instantly even with thousands of samples.</p>')}
+        <div class="filter-controls">
+            <input type="text" class="search-box" id="search-{tab_id}"
+                   onkeyup="filterBoxes('{tab_id}')"
+                   placeholder="🔍 Search sample..." style="max-width:320px;margin-bottom:0;">
+            <select id="dbFilter-{tab_id}" onchange="filterBoxes('{tab_id}')">{db_options}</select>
+            <button class="action-btn btn-info" onclick="expandAllBoxes('{tab_id}')">
+                <i class="fas fa-expand-alt"></i> Expand All (visible)</button>
+            <button class="action-btn btn-light" onclick="collapseAllBoxes('{tab_id}')">
+                <i class="fas fa-compress-alt"></i> Collapse All</button>
+            <button class="action-btn btn-success" onclick="resetBoxFilters('{tab_id}')">
+                <i class="fas fa-sync"></i> Clear</button>
+            <span class="results-counter" id="counter-{tab_id}">{len(relevant)} shown</span>
+        </div>
+        <div id="box-container-{tab_id}">
+        '''
+
+        for sample in relevant:
+            t = samples.get(sample, {}).get('typing', {})
+            mlst = t.get('MLST', 'ND')
+            otype = t.get('O_Type', 'ND')
+            t3ss = t.get('T3SS', 'ND')
+            total_genes = len(amr_details.get(sample, [])) if 'amrfinder' in db_list else 0
+            for db in db_list:
+                if db != 'amrfinder':
+                    total_genes += len(abricate_details.get(sample, {}).get(db, []))
+            t3ss_cls = ('t3ss-exou' if t3ss == 'ExoU'
+                        else 't3ss-exos' if t3ss == 'ExoS'
+                        else 't3ss-both' if t3ss == 'ExoU+ExoS'
+                        else 't3ss-neither')
+            html += f'''
+            <div class="isolate-box" data-sample="{esc(sample)}" data-tab="{tab_id}">
+                <div class="sample-header">
+                    <h3><i class="fas fa-microbe"></i> {esc(sample)}</h3>
+                    <span class="total-badge">Total Genes: {total_genes}</span>
+                    <div class="typing-info">
+                        <span class="typing-badge">ST: {esc(mlst)}</span>
+                        <span class="typing-badge">O-Type: {esc(otype)}</span>
+                        <span class="typing-badge {t3ss_cls}">{esc(t3ss)}</span>
+                    </div>
+                    <button class="toggle-btn" onclick="toggleBoxDetails('{tab_id}', '{esc(sample)}')">
+                        <i class="fas fa-chevron-down"></i> Show Details
+                    </button>
+                </div>
+                <div class="box-details" style="display:none;"></div>
+            </div>'''
+
+        html += '</div>'
+        html += f'''
+        <script>
+        window.PSEUDOSCOPE_BOX_DATA = window.PSEUDOSCOPE_BOX_DATA || {{}};
+        window.PSEUDOSCOPE_BOX_DATA["{tab_id}"] = {box_json};
+        </script>'''
         return html
 
-    def _citation_section(self):
-        colours = [
-            '#E3F2FD', '#E8F5E9', '#FFF3E0', '#FCE4EC', '#F3E5F5',
-            '#E0F7FA', '#FFF8E1', '#FBE9E7', '#EDE7F6', '#E0F2F1',
-            '#F1F8E9', '#FFFDE7', '#FCE4EC', '#E3F2FD', '#E8EAF6'
-        ]
-        colour_index = 0
+    def _gen_mutation_boxes(self, d):
+        samples = d.get('samples', {})
+        mutation_details = d.get('mutation_details', {})
+        relevant = [s for s in samples if mutation_details.get(s)]
+        relevant.sort()
 
-        def format_citation(name, citation_text, link_type, link_url):
-            nonlocal colour_index
-            colour = colours[colour_index % len(colours)]
-            colour_index += 1
-            if link_type == 'doi':
-                link_html = f'<a href="https://doi.org/{link_url}" target="_blank" class="doi"><i class="fas fa-external-link-alt"></i> {link_url}</a>'
+        if not relevant:
+            return self._alert('warning', 'fa-dna',
+                '<h3>No Mutation Data Available</h3><p>No point mutations were found.</p>')
+
+        box_data = {s: {'mutations': mutation_details.get(s, [])} for s in relevant}
+        box_json = json.dumps(box_data, default=str, ensure_ascii=False)
+
+        credit = self._credit_bar('#00BCD4', '🧬', 'AMRFinderPlus – Point Mutations',
+            'AMRFinderPlus by NCBI — comprehensive database for resistance genes and point mutations.')
+
+        info = self._gene_family_info('#00BCD4',
+            'Clinical relevance of key mutations in P. aeruginosa:', [
+                ('gyrA / parC', 'QRDR mutations — fluoroquinolone resistance.'),
+                ('rpoB', 'Rifampin resistance.'),
+                ('23S rRNA', 'Macrolide and linezolid resistance.'),
+                ('oprD', 'Porin loss — carbapenem resistance mechanism independent of carbapenemases.'),
+                ('mexR / nalC / nalD', 'Efflux pump regulators — MexAB-OprM overexpression.'),
+                ('ampR / ampD', 'AmpC derepression.'),
+            ])
+
+        html = f'''
+        {credit}
+        {self._alert('info', 'fa-dna',
+            '<h3>🧬 Point Mutations – Sample-Centric View (Lazy-Loaded)</h3>'
+            '<p>Each box shows one isolate. Click <strong>Show Details</strong> to load its mutation table.</p>')}
+        {info}
+        <div class="filter-controls">
+            <input type="text" class="search-box" id="search-mutation"
+                   onkeyup="filterBoxes('mutation')"
+                   placeholder="🔍 Search sample..." style="max-width:320px;margin-bottom:0;">
+            <button class="action-btn btn-info" onclick="expandAllBoxes('mutation')">
+                <i class="fas fa-expand-alt"></i> Expand All (visible)</button>
+            <button class="action-btn btn-light" onclick="collapseAllBoxes('mutation')">
+                <i class="fas fa-compress-alt"></i> Collapse All</button>
+            <button class="action-btn btn-success" onclick="resetBoxFilters('mutation')">
+                <i class="fas fa-sync"></i> Clear</button>
+            <span class="results-counter" id="counter-mutation">{len(relevant)} shown</span>
+        </div>
+        <div id="box-container-mutation">
+        '''
+        for sample in relevant:
+            t = samples.get(sample, {}).get('typing', {})
+            mlst = t.get('MLST', 'ND')
+            otype = t.get('O_Type', 'ND')
+            t3ss = t.get('T3SS', 'ND')
+            n_mut = len(mutation_details.get(sample, []))
+            t3ss_cls = ('t3ss-exou' if t3ss == 'ExoU'
+                        else 't3ss-exos' if t3ss == 'ExoS'
+                        else 't3ss-both' if t3ss == 'ExoU+ExoS'
+                        else 't3ss-neither')
+            html += f'''
+            <div class="isolate-box" data-sample="{esc(sample)}" data-tab="mutation">
+                <div class="sample-header">
+                    <h3><i class="fas fa-microbe"></i> {esc(sample)}</h3>
+                    <span class="total-badge">Total Mutations: {n_mut}</span>
+                    <div class="typing-info">
+                        <span class="typing-badge">ST: {esc(mlst)}</span>
+                        <span class="typing-badge">O-Type: {esc(otype)}</span>
+                        <span class="typing-badge {t3ss_cls}">{esc(t3ss)}</span>
+                    </div>
+                    <button class="toggle-btn" onclick="toggleBoxDetails('mutation', '{esc(sample)}')">
+                        <i class="fas fa-chevron-down"></i> Show Details
+                    </button>
+                </div>
+                <div class="box-details" style="display:none;"></div>
+            </div>'''
+        html += '</div>'
+        html += f'''
+        <script>
+        window.PSEUDOSCOPE_BOX_DATA = window.PSEUDOSCOPE_BOX_DATA || {{}};
+        window.PSEUDOSCOPE_BOX_DATA["mutation"] = {box_json};
+        </script>'''
+        return html
+
+    def _sec_mge(self, d):
+        """MGE tab — sample-centric lazy-loaded isolate boxes."""
+        samples_data = d.get('samples', {})
+        mge_details = d.get('mge_details', {})
+        relevant = [s for s in samples_data if mge_details.get(s)]
+        relevant.sort()
+
+        if not relevant:
+            return self._alert('warning', 'fa-mobile-alt',
+                '<h3>No MGE Data Available</h3>'
+                '<p>pseudoscope_mge_hits.tsv was not found or contains no rows.</p>')
+
+        blob = {s: {'mge': mge_details.get(s, [])} for s in relevant}
+        blob_json = json.dumps(blob, default=str, ensure_ascii=False)
+
+        credit = self._credit_bar('#16A085', '🧬', 'Mobile Genetic Elements – mobileOG-db',
+            '<strong>mobileOG-db</strong> by '
+            '<a href="https://github.com/clb21565/mobileOG-db" target="_blank" '
+            'style="color:#16A085;font-weight:bold;">Brown, Mullet and colleagues</a>.<br>'
+            'Please cite: Brown CL, et al. mobileOG-db: a Manually Curated Database of '
+            'Protein Families Mediating the Life Cycle of Bacterial Mobile Genetic Elements. '
+            '<em>Appl Environ Microbiol</em>. 2022;88(18):e00991-22. '
+            '<a href="https://doi.org/10.1128/aem.00991-22" target="_blank" '
+            'style="color:#16A085;font-weight:bold;">doi:10.1128/aem.00991-22</a>')
+
+        info = self._gene_family_info('#16A085',
+            'MGE categories and why they matter:', [
+                ('replication/recombination/repair', 'Core machinery for element replication and host DNA integration.'),
+                ('transfer', 'Conjugal transfer systems (T4SS) — primary route for horizontal gene transfer.'),
+                ('integration/excision', 'Integrases and transposases moving genetic material between replicons.'),
+                ('stability/defense', 'Partitioning and toxin-antitoxin systems ensuring persistence.'),
+                ('phage', 'Bacteriophage structural and lysogeny proteins.'),
+                ('plasmid', 'Plasmid backbone proteins — important vehicle for acquired resistance.'),
+                ('IS', 'Insertion sequence transposases.'),
+                ('ICE', 'Integrative conjugative elements moving large gene cassettes.'),
+            ])
+
+        html = f'''
+        {credit}
+        {self._alert('info', 'fa-mobile-alt',
+            '<h3>🧬 Mobile Genetic Elements – Sample-Centric View (Lazy-Loaded)</h3>'
+            '<p>mobileOG-db protein family hits for each isolate. Click <strong>Show Details</strong> '
+            'on any box to load its MGE table on demand.</p>')}
+        <div class="filter-controls">
+            <input type="text" class="search-box" id="search-mge"
+                   onkeyup="filterBoxes('mge')"
+                   placeholder="🔍 Search sample by name..." style="max-width:320px;margin-bottom:0;">
+            <button class="action-btn btn-info" onclick="expandAllBoxes('mge')">
+                <i class="fas fa-expand-alt"></i> Expand All (visible)</button>
+            <button class="action-btn btn-light" onclick="collapseAllBoxes('mge')">
+                <i class="fas fa-compress-alt"></i> Collapse All</button>
+            <button class="action-btn btn-success" onclick="resetBoxFilters('mge')">
+                <i class="fas fa-sync"></i> Clear</button>
+            <span class="results-counter" id="counter-mge">{len(relevant)} shown</span>
+        </div>
+        <div id="box-container-mge">
+        '''
+
+        for sample in relevant:
+            sd = samples_data.get(sample, {})
+            t = sd.get('typing', {})
+            mlst = t.get('MLST', 'ND')
+            otype = t.get('O_Type', 'ND')
+            t3ss = t.get('T3SS', 'ND')
+            n_hits = len(mge_details.get(sample, []))
+            t3ss_cls = ('t3ss-exou' if t3ss == 'ExoU'
+                        else 't3ss-exos' if t3ss == 'ExoS'
+                        else 't3ss-both' if t3ss == 'ExoU+ExoS'
+                        else 't3ss-neither')
+            html += f'''
+            <div class="isolate-box" data-sample="{esc(sample)}" data-tab="mge">
+                <div class="sample-header">
+                    <h3><i class="fas fa-microbe"></i> {esc(sample)}</h3>
+                    <span class="total-badge">Total MGE hits: {n_hits}</span>
+                    <div class="typing-info">
+                        <span class="typing-badge">ST: {esc(mlst)}</span>
+                        <span class="typing-badge">O-Type: {esc(otype)}</span>
+                        <span class="typing-badge {t3ss_cls}">{esc(t3ss)}</span>
+                    </div>
+                    <button class="toggle-btn" onclick="toggleBoxDetails('mge', '{esc(sample)}')">
+                        <i class="fas fa-chevron-down"></i> Show Details
+                    </button>
+                </div>
+                <div class="box-details" style="display:none;"></div>
+            </div>'''
+
+        html += '</div>'
+        html += f'''
+        <script>
+        window.PSEUDOSCOPE_BOX_DATA = window.PSEUDOSCOPE_BOX_DATA || {{}};
+        window.PSEUDOSCOPE_BOX_DATA["mge"] = {blob_json};
+        </script>'''
+        html += '<h3 style="margin-top:30px;"><i class="fas fa-book-medical"></i> MGE Category Guide</h3>'
+        html += '<p style="color:#666;font-size:.9em;margin-bottom:10px;">Expand below for MGE category descriptions.</p>'
+        html += info
+        return html
+
+    def _sec_citation(self, d):
+        colors = ['#E3F2FD','#E8F5E9','#FFF3E0','#FCE4EC','#F3E5F5',
+                  '#E0F7FA','#FFF8E1','#FBE9E7','#EDE7F6','#E0F2F1',
+                  '#F1F8E9','#FFFDE7','#FCE4EC','#E3F2FD','#E8EAF6']
+        i = [0]
+
+        def fmt(name, text, kind, url):
+            c = colors[i[0] % len(colors)]
+            i[0] += 1
+            if kind == 'doi':
+                link = f'<a href="https://doi.org/{url}" target="_blank" style="color:#0D6EFD;font-weight:600;">🔗 {url}</a>'
             else:
-                link_html = f'<a href="{link_url}" target="_blank" class="url"><i class="fas fa-external-link-alt"></i> {link_url}</a>'
-            return f"""
-            <div class="citation-card" style="background: {colour}; border-left-color: var(--citation-color);">
-                <strong>{name}</strong> – {citation_text} {link_html}
-                <button class="copy-btn" data-citation='{citation_text} {link_url}' style="background: #006064;">📋 Copy</button>
-            </div>
-            """
-        html = """
-        <div class="alert-box alert-info"><i class="fas fa-quote-right fa-2x"></i><div><h3>📚 How to Cite PseudoScope and Its Dependencies</h3><p>If you use this tool in your research, please cite the main tool and the relevant third‑party tools and databases.</p></div></div>
-        """
-        html += format_citation(
-            "PseudoScope",
-            "Beckley B, Amarh V. PseudoScope: a species‑specific bioinformatics suite for rapid and accessible Pseudomonas aeruginosa genomic analysis. Github 2026",
-            "url",
-            "https://github.com/brown-beckley/pseudoscope"
-        )
-        html += format_citation(
-            "MLST",
+                link = f'<a href="{url}" target="_blank" style="color:#8B4513;font-weight:600;">🔗 {url}</a>'
+            return (f'<div style="background:{c};border-left:5px solid #00838F;padding:14px;'
+                    f'border-radius:8px;margin-bottom:12px;">'
+                    f'<strong>{name}</strong> – {text} {link} '
+                    f'<button class="copy-btn" data-citation="{text} {url}">📋 Copy</button></div>')
+
+        html = self._alert('info', 'fa-quote-right',
+            '<h3>📚 How to Cite PseudoScope and Its Dependencies</h3>'
+            '<p>If you use this tool in your research, please cite the main tool and the relevant third-party tools and databases.</p>')
+
+        html += fmt("PseudoScope",
+            "Beckley B, Amarh V. PseudoScope: a species-specific bioinformatics suite for rapid and accessible Pseudomonas aeruginosa genomic analysis. GitHub 2026.",
+            "url", "https://github.com/bbeckley-hub/pseudoscope")
+        html += fmt("MLST (Pasteur scheme)",
             "Seemann T. MLST: Scan contig files against PubMLST typing schemes. GitHub.",
-            "url",
-            "https://github.com/tseemann/mlst"
-        )
-        html += format_citation(
-            "PAST (P. aeruginosa serotyping) – Original Tool",
-            "Thomsen MCF, et al. A web‑based tool for serotyping of Pseudomonas aeruginosa. CGE, Technical University of Denmark.",
-            "url",
-            "https://cge.food.dtu.dk/services/PAst/"
-        )
-        html += format_citation(
-            "pasty",
-            "Petit RA III, pasty: A tool easily taken advantage of for in silico serogrouping of Pseudomonas aeruginosa isolates. GitHub.",
-            "url",
-            "https://github.com/rpetit3/pasty"
-        )
-        html += format_citation(
-                    "camlhmp",
-                    "Petit RA III, camlhmp: Classification through yAML Heuristic Mapping Protocol (GitHub).",
-                    "url",
-                    "https://github.com/rpetit3/camlhmp"
-        )
-        html += format_citation(
-            "AMRFinderPlus",
+            "url", "https://github.com/tseemann/mlst")
+        html += fmt("PubMLST",
+            "Jolley KA, Bray JE, Maiden MCJ. Open-access bacterial population genomics: BIGSdb software, the PubMLST.org website and their applications. Wellcome Open Res. 2018;3:124.",
+            "doi", "10.12688/wellcomeopenres.14826.1")
+        html += fmt("PAST (Original)",
+            "Thomsen MCF, et al. A web-based tool for serotyping of Pseudomonas aeruginosa. CGE, Technical University of Denmark.",
+            "url", "https://cge.food.dtu.dk/services/PAst/")
+        html += fmt("pasty",
+            "Petit RA III. pasty: A tool for in silico serogrouping of Pseudomonas aeruginosa isolates. GitHub.",
+            "url", "https://github.com/rpetit3/pasty")
+        html += fmt("camlhmp",
+            "Petit RA III. camlhmp: Classification through yAML Heuristic Mapping Protocol. GitHub.",
+            "url", "https://github.com/rpetit3/camlhmp")
+        html += fmt("AMRFinderPlus",
             "Feldgarden M, et al. AMRFinderPlus and the Reference Gene Catalog facilitate examination of the genomic links among antimicrobial resistance, stress response, and virulence. Sci Rep. 2021;11(1):12728.",
-            "doi",
-            "10.1038/s41598-021-91456-0"
-        )
-        html += format_citation(
-            "ABRicate",
+            "doi", "10.1038/s41598-021-91456-0")
+        html += fmt("ABRicate",
             "Seemann T. ABRicate: mass screening of contigs for antibiotic resistance genes. GitHub.",
-            "url",
-            "https://github.com/tseemann/abricate"
-        )
-        html += format_citation(
-            "CARD",
+            "url", "https://github.com/tseemann/abricate")
+        html += fmt("CARD",
             "McArthur AG, et al. The comprehensive antibiotic resistance database. Antimicrob Agents Chemother. 2013;57(7):3348-57.",
-            "doi",
-            "10.1128/AAC.00419-13"
-        )
-        html += format_citation(
-            "ResFinder",
-            "Florensa AF, et al. ResFinder – an open online resource for identification of antimicrobial resistance genes in next‑generation sequencing data and prediction of phenotypes from genotypes. Microb Genom. 2022;8(1):000748.",
-            "doi",
-            "10.1099/mgen.0.000748"
-        )
-        html += format_citation(
-            "VFDB",
+            "doi", "10.1128/AAC.00419-13")
+        html += fmt("ResFinder",
+            "Florensa AF, et al. ResFinder – an open online resource for identification of antimicrobial resistance genes. Microb Genom. 2022;8(1):000748.",
+            "doi", "10.1099/mgen.0.000748")
+        html += fmt("VFDB",
             "Chen L, et al. VFDB 2012 update: toward the genetic diversity and molecular evolution of bacterial virulence factors. Nucleic Acids Res. 2012;40(Database issue):D641-5.",
-            "doi",
-            "10.1093/nar/gkr989"
-        )
-        html += format_citation(
-            "PlasmidFinder",
-            "Carattoli A, et al. In silico detection and typing of plasmids using PlasmidFinder and plasmid multilocus sequence typing. Antimicrob Agents Chemother. 2014;58(7):3895-903.",
-            "doi",
-            "10.1128/AAC.02412-14"
-        )
-        html += format_citation(
-            "BacMet",
+            "doi", "10.1093/nar/gkr989")
+        html += fmt("PlasmidFinder",
+            "Carattoli A, et al. In silico detection and typing of plasmids using PlasmidFinder. Antimicrob Agents Chemother. 2014;58(7):3895-903.",
+            "doi", "10.1128/AAC.02412-14")
+        html += fmt("BacMet2",
             "Pal C, et al. BacMet: antibacterial biocide and metal resistance genes database. Nucleic Acids Res. 2014;42(Database issue):D737-43.",
-            "doi",
-            "10.1093/nar/gkt1252"
-        )
-        html += format_citation(
-            "MEGARes",
-            "Doster E, et al. MEGARes 2.0: a database for classification of antimicrobial drug, biocide and metal resistance determinants in metagenomic sequence data. Nucleic Acids Res. 2020;48(D1):D561-D569.",
-            "doi",
-            "10.1093/nar/gkz1010"
-        )
-        html += format_citation(
-            "Biopython",
+            "doi", "10.1093/nar/gkt1252")
+        html += fmt("MEGARes",
+            "Doster E, et al. MEGARes 2.0: a database for classification of antimicrobial drug, biocide and metal resistance determinants. Nucleic Acids Res. 2020;48(D1):D561-D569.",
+            "doi", "10.1093/nar/gkz1010")
+        html += fmt("mobileOG-db",
+            "Brown CL, et al. mobileOG-db: a Manually Curated Database of Protein Families Mediating the Life Cycle of Bacterial Mobile Genetic Elements. Appl Environ Microbiol. 2022;88(18):e00991-22.",
+            "doi", "10.1128/aem.00991-22")
+        html += fmt("Prodigal",
+            "Hyatt D, et al. Prodigal: prokaryotic gene recognition and translation initiation site identification. BMC Bioinformatics. 2010;11:119.",
+            "doi", "10.1186/1471-2105-11-119")
+        html += fmt("DIAMOND",
+            "Buchfink B, Xie C, Huson DH. Fast and sensitive protein alignment using DIAMOND. Nat Methods. 2015;12:59-60.",
+            "doi", "10.1038/nmeth.3176")
+        html += fmt("Biopython",
             "Cock PJ, et al. Biopython: freely available Python tools for computational molecular biology and bioinformatics. Bioinformatics. 2009;25(11):1422-3.",
-            "doi",
-            "10.1093/bioinformatics/btp163"
-        )
-        html += """
-        <div class="alert-box alert-success"><i class="fas fa-hand-peace"></i><div><strong>Suggested acknowledgement:</strong><br>
-        "Genomic analysis was performed using PseudoScope [Beckley & Amarh, 2026] which integrates MLST [Seemann, 2018] using the PubMLST database [Jolley et al., 2018], ABRicate [Seemann, 2018], AMRFinderPlus [Feldgarden et al., 2021], and PAST serotyping [Thomsen et al., DTU] via the pasty wrapper [Petit et al., 2023] for comprehensive P. aeruginosa characterization. Antimicrobial resistance genes were identified using the CARD [McArthur et al., 2013] and ResFinder [Florensa et al., 2022] databases. For biocide and heavy metal resistance genes, BacMet [Pal et al., 2014] was used. Virulence and plasmid screening were performed with ABRicate using the VFDB [Chen et al., 2012] and PlasmidFinder [Carattoli et al., 2014] databases."
-        </div></div>
-        """
+            "doi", "10.1093/bioinformatics/btp163")
+
+        html += '''
+        <div class="alert-box alert-success" style="margin-top:20px;">
+            <i class="fas fa-hand-peace"></i>
+            <div><strong>Suggested acknowledgement:</strong><br>
+            "Genomic analysis was performed using PseudoScope [Beckley &amp; Amarh, 2026], which integrates MLST [Seemann, 2018] using the PubMLST database [Jolley et al., 2018], ABRicate [Seemann, 2018], AMRFinderPlus [Feldgarden et al., 2021], PAST serotyping [Thomsen et al., DTU] via the pasty wrapper [Petit et al., 2023], and fastANI [Jain et al., 2018] for comprehensive P. aeruginosa characterization. Antimicrobial resistance genes were identified using the CARD [McArthur et al., 2013] and ResFinder [Florensa et al., 2022] databases. For biocide and heavy metal resistance genes, BacMet [Pal et al., 2014] was used. Virulence and plasmid screening were performed with ABRicate using the VFDB [Chen et al., 2012] and PlasmidFinder [Carattoli et al., 2014] databases. Mobile genetic element profiling used mobileOG-db [Brown et al., 2022], Prodigal [Hyatt et al., 2010], and DIAMOND [Buchfink et al., 2015]."
+            </div>
+        </div>'''
         return html
 
-    def _guide_section(self):
-        return """
-        <div class="alert-box alert-info"><i class="fas fa-question-circle fa-2x"></i><div><h3>📘 Welcome to GENIUS P. aeruginosa Sample-Centric Report – Your Guide</h3><p>This guide explains how to get the most out of each tab, why multiple databases are used, and some practical tips.</p></div></div>
-        <div style="background: #f0f7f0; padding:20px; border-radius:12px; margin:20px 0;">
-        <h4><i class="fas fa-cogs"></i> How to Use the Report</h4>
-        <ul>
-            <li><strong>Summary</strong> – Overview of your dataset and key statistics.</li>
-            <li><strong>Sample Overview</strong> – List of all samples with ST, O‑type, and virulence counts.</li>
-            <li><strong>FASTA QC</strong> – Assembly quality metrics. Good assemblies = reliable gene calls.</li>
-            <li><strong>MLST</strong> – ST distribution and sample lists. High‑risk clones are highlighted in the notes.</li>
-            <li><strong>O‑Serotype</strong> – Serotype distribution with genome tags. Use highlight to track specific isolates.</li>
-            <li><strong>AMR</strong> – Each isolate is displayed in a box with typing badges and a detailed table of AMR genes. Filter by sample name or database. Horizontally scrollable tables.</li>
-            <li><strong>Virulence</strong> – Same as AMR but for virulence factors. Identify hypervirulent clones.</li>
-            <li><strong>Plasmids</strong> – Plasmid replicons per isolate.</li>
-            <li><strong>Bacmet2 </strong> – Biocide and heavy metal resistance genes per isolate – important for hospital hygiene.</li>
-            <li><strong>Mutations</strong> – Point mutations per isolate.</li>
-            <li><strong>Patterns</strong> – ST‑O combinations and gene co‑occurrence. Find outbreak clones and co‑selection links.</li>
-            <li><strong>Citation</strong> – All required citations, copy‑able with one click, with distinct coloured cards.</li>
-            <li><strong>Call to Action</strong> – Learn about the global AMR burden and how you can contribute.</li>
-            <li><strong>Export</strong> – Download tables as CSV and full JSON for AI or downstream analysis.</li>
-        </ul>
+    def _sec_guide(self, d):
+        return '''
+        <div class="alert-box alert-info">
+            <i class="fas fa-question-circle fa-2x"></i>
+            <div><h3>📘 PseudoScope Sample-Centric Report – Guide</h3>
+            <p>This guide explains how to get the most out of each tab and the lazy-loading boxes.</p></div>
         </div>
-        <div style="background: #fff0f0; padding:20px; border-radius:12px; margin:20px 0; border-left: 5px solid #dc3545;">
-        <h4><i class="fas fa-database"></i> Why Multiple Databases?</h4>
-        <p>Some users ask: "Why use AMRfinder <strong>and</strong> ABRicate with CARD, ResFinder, and NCBI?"</p>
-        <p><strong>Because no single database is perfect.</strong> Each has strengths and biases. For example:</p>
-        <ul>
-            <li><strong>AMRfinder</strong> – Curated by NCBI, excellent for clinically relevant genes, but may miss some environmental or novel variants.</li>
-            <li><strong>CARD</strong> – Comprehensive with detailed resistance mechanisms, but often lag behind newly discovered genes.</li>
-            <li><strong>ResFinder</strong> – Frequently updated and widely used in clinical labs, but focuses on acquired resistance.</li>
-            <li><strong>NCBI</strong> – Large but sometimes includes non‑specific hits.</li>
-        </ul>
-        <p>By combining them, we <strong>maximise sensitivity</strong> and provide a consensus view. If a gene appears in multiple databases, it's a strong signal. If only one, it's worth double‑checking.</p>
-        <p>Also, some databases perform better for certain species or gene families. For <em>P. aeruginosa</em>, CARD and ResFinder are generally excellent, but AMRfinder catches many carbapenemase variants. We give you all the data, you decide what to trust.</p>
+        <div class="database-section">
+            <h4><i class="fas fa-cogs"></i> How to Use the Report</h4>
+            <ul>
+                <li><strong>Summary</strong> — overview + key statistics + how-to.</li>
+                <li><strong>Sample Overview</strong> — one row per isolate with typing summary.</li>
+                <li><strong>AMR</strong> — resistance genes as lazy-loaded isolate boxes.</li>
+                <li><strong>Virulence</strong> — VFDB virulence genes as lazy-loaded isolate boxes.</li>
+                <li><strong>Plasmids</strong> — plasmid replicons as lazy-loaded isolate boxes.</li>
+                <li><strong>Bacmet2</strong> — biocide &amp; heavy-metal resistance as lazy-loaded isolate boxes.</li>
+                <li><strong>Mutations</strong> — point mutations as lazy-loaded isolate boxes.</li>
+                <li><strong>MGE</strong> — mobileOG-db hits as lazy-loaded isolate boxes.</li>
+                <li><strong>Citation, Call to Action, Export</strong> — citations, ESCAPE AMR project, downloads.</li>
+            </ul>
         </div>
-        <div style="background: #e8f5e9; padding:20px; border-radius:12px; margin:20px 0; border-left: 5px solid #28a745;">
-        <h4><i class="fas fa-lightbulb"></i> Pro Tips</h4>
-        <ul>
-            <li><strong>Filtering sample boxes</strong> – In AMR, Virulence, Plasmid, Bacmet, and Mutation tabs, use the search bar to filter by sample name, and use the dropdown to show only specific databases.</li>
-            <li><strong>Highlighting</strong> – In gene‑centric tables (MLST, Serotype, Patterns), use the "Highlight sample" search boxes to find a particular isolate – it will turn yellow!</li>
-            <li><strong>Export</strong> – You can export any table as CSV. The JSON file is ideal for AI tools – upload it to ChatGPT/Claude and ask questions about your data.</li>
-            <li><strong>Print</strong> – Each section has a print button to save as PDF for reports.</li>
-        </ul>
-        </div>
-        """
+        <div class="database-section" style="background:#e8f5e9;border-left:5px solid #28a745;">
+            <h4><i class="fas fa-lightbulb"></i> Pro Tips</h4>
+            <ul>
+                <li><strong>Lazy boxes</strong> — click "Show Details" on any isolate box to load its gene/mutation/MGE tables on demand. This keeps the report responsive even with 1000+ samples.</li>
+                <li><strong>Expand All (visible)</strong> — batch-opens the visible boxes at 20 per tick. Browser stays responsive.</li>
+                <li><strong>Filter</strong> — search by sample name or restrict to one database via the dropdown.</li>
+                <li><strong>Export</strong> — every typing table is exportable as CSV. Use the JSON file for AI-assisted analysis.</li>
+                <li><strong>Print</strong> — printing a tab auto-expands all its isolate boxes first.</li>
+            </ul>
+        </div>'''
 
-    def _calltoaction_section(self):
-        return """
-        <div class="alert-box alert-info"><i class="fas fa-globe fa-2x"></i><div>
-        <h3>The Global Burden of AMR and Our Call to Action</h3>
-        <p>Antimicrobial resistance (AMR) kills an estimated <strong>1.27 million people directly each year</strong>. <em>Pseudomonas aeruginosa</em> is a WHO critical‑priority pathogen, especially when carbapenem‑resistant. Genomic surveillance is our best tool to track resistant clones, understand transmission, and guide infection control.</p>
-        <p>We developed <strong>PseudoScope</strong> as part of the <strong>ESCAPE AMR</strong> project – an open‑source initiative targeting all ESKAPE pathogens. Our goal is to empower researchers, especially in low‑resource settings, with user‑friendly genomic analysis tools.</p>
-        </div></div>
-
-        <div style="background:#e8f5e9; padding:20px; border-radius:12px; margin:20px 0;">
-        <h3><i class="fas fa-bacterium"></i> ESCAPE AMR – Our Vision</h3>
-        <p>We believe the name “ESCAPE” is also a call to action:</p>
-        <ul>
-            <li><strong>E</strong>veryone must join forces – researchers, clinicians, policymakers.</li>
-            <li><strong>S</strong>mart surveillance is our first line of defence – sequence, don’t guess.</li>
-            <li><strong>K</strong>nowledge must be shared openly – no paywalls, no silos.</li>
-            <li><strong>A</strong>frica bears a heavy AMR burden, but African solutions are emerging.</li>
-            <li><strong>P</strong>revention is cheaper than cure – let’s stop resistant infections before they spread.</li>
-            <li><strong>E</strong>very day we delay, more lives are at stake – act now.</li>
-        </ul>
+    def _sec_calltoaction(self, d):
+        return '''
+        <div class="alert-box alert-info">
+            <i class="fas fa-globe fa-2x"></i>
+            <div>
+                <h3>The Global Burden of AMR and Our Call to Action</h3>
+                <p>Antimicrobial resistance kills an estimated <strong>1.27 million people directly each year</strong>. <em>Pseudomonas aeruginosa</em> is a WHO critical-priority pathogen, especially carbapenem-resistant. Genomic surveillance is our best tool.</p>
+                <p>We developed <strong>PseudoScope</strong> as part of the <strong>ESCAPE AMR</strong> project.</p>
+            </div>
         </div>
-
-        <div style="text-align:center; margin:40px 0;">
-            <i class="fas fa-star" style="font-size:3em; color:#ffc107;"></i>
+        <div style="background:#e8f5e9;padding:20px;border-radius:12px;margin:20px 0;">
+            <h3><i class="fas fa-bacterium"></i> ESCAPE AMR – Our Vision</h3>
+            <ul>
+                <li><strong>E</strong>veryone must join forces.</li>
+                <li><strong>S</strong>mart surveillance is our first line of defence.</li>
+                <li><strong>K</strong>nowledge must be shared openly.</li>
+                <li><strong>A</strong>frica bears a heavy AMR burden — African solutions are emerging.</li>
+                <li><strong>P</strong>revention is cheaper than cure.</li>
+                <li><strong>E</strong>very day we delay, more lives are at stake.</li>
+            </ul>
+        </div>
+        <div style="text-align:center;margin:40px 0;">
+            <i class="fas fa-star" style="font-size:3em;color:#ffc107;"></i>
             <h3>🤝 We Invite You to Contribute!</h3>
-            <p><strong>If you find this tool useful, please:</strong></p>
             <div class="action-buttons" style="justify-content:center;">
                 <a href="https://github.com/bbeckley-hub/pseudoscope" target="_blank" class="action-btn btn-primary" style="text-decoration:none;"><i class="fab fa-github"></i> ⭐ Star us on GitHub</a>
-                <a href="mailto:brownbeckley94@gmail.com" class="action-btn btn-success" style="text-decoration:none;"><i class="fas fa-envelope"></i> Contact the team</a>
+                <a href="mailto:brownbeckley94@gmail.com" class="action-btn btn-success" style="text-decoration:none;"><i class="fas fa-envelope"></i> Contact us</a>
                 <a href="https://github.com/bbeckley-hub/pseudoscope/issues" target="_blank" class="action-btn btn-warning" style="text-decoration:none;"><i class="fas fa-bug"></i> Report issues</a>
             </div>
-            <p style="margin-top:20px;"><i class="fas fa-chalkboard-user"></i> <strong>We welcome collaborations</strong> to adapt this tool for other pathogens and to improve AMR surveillance in Africa and beyond.</p>
-            <p><i class="fas fa-hand-holding-heart"></i> If you are a funder or organisation interested in supporting the <strong>ESCAPE AMR</strong> project, please reach out. Together we can build a free, open‑source ecosystem for genomic surveillance of all ESKAPE pathogens.</p>
-        </div>
-        """
+            <p style="margin-top:20px;"><i class="fas fa-chalkboard-user"></i> <strong>We welcome collaborations</strong> to adapt this tool for other pathogens.</p>
+        </div>'''
 
-    def _export_section(self):
-        return """
-        <div class="alert-box alert-info"><i class="fas fa-download"></i><div>Export data tables as CSV or download complete JSON.</div></div>
-        <div class="action-buttons">
-            <button class="action-btn btn-primary" onclick="exportTableToCSV('samples-table','sample_overview.csv')">Sample Overview CSV</button>
-            <button class="action-btn btn-primary" onclick="exportTableToCSV('summary-stats','summary_stats.csv')">Summary Stats CSV</button>
-            <button class="action-btn btn-primary" onclick="exportTableToCSV('mlst-counts-table','mlst_counts.csv')">MLST Counts CSV</button>
-            <button class="action-btn btn-primary" onclick="exportTableToCSV('serotype-table','serotype_counts.csv')">Serotype Counts CSV</button>
-            <button class="action-btn btn-primary" onclick="exportTableToCSV('qc-table','fasta_qc.csv')">FASTA QC CSV</button>
-            <button class="action-btn btn-primary" onclick="exportTableToCSV('sto-table','st_o_combinations.csv')">ST‑O Combinations CSV</button>
-            <button class="action-btn btn-primary" onclick="exportTableToCSV('cooc-table','gene_cooccurrence.csv')">Co‑occurrence CSV</button>
-            <button class="action-btn btn-success" onclick="location.href='genius_pseudomonas_sample_centric_report.json'">Download JSON</button>
-        </div>
-        """
+    def _sec_export(self, d):
+        cards = ''
+        for tid, label, icon, fname in [
+            ('samples-table', 'Sample Overview CSV', 'fa-table', 'sample_overview.csv'),
+        ]:
+            cards += f'''
+            <div class="dashboard-card" onclick="exportTableToCSV('{tid}', '{fname}')">
+                <div style="font-size:2em;color:#37474F;"><i class="fas {icon}"></i></div>
+                <div class="card-label">{label}</div>
+            </div>'''
+        cards += '''
+        <div class="dashboard-card" onclick="location.href='pseudoscope_ultimate_sample_centric_report.json'">
+            <div style="font-size:2em;color:#37474F;"><i class="fas fa-file-code"></i></div>
+            <div class="card-label">Complete JSON Data</div>
+        </div>'''
+        return f'''
+        {self._alert('info', 'fa-download',
+            '<h3>📥 Export Data</h3>'
+            '<p>Typing tables export to CSV directly. Lazy-loaded gene/mutation/MGE tables export via the JSON file, which also powers AI-assisted analysis.</p>')}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;margin-top:20px;">
+            {cards}
+        </div>'''
 
 
-class GeniusPseudomonasSampleCentricReporter:
+# =============================================================================
+# ORCHESTRATOR
+# =============================================================================
+class PseudomonasUltimateReporter:
     def __init__(self, input_dir: Path):
         self.input_dir = Path(input_dir)
-        self.output_dir = self.input_dir / "GENIUS_PSEUDOMONAS_SAMPLE_CENTRIC_REPORTS"
+        self.output_dir = self.input_dir / "PSEUDOSCOPE_ULTIMATE_SAMPLE_CENTRIC_REPORTS"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.parser = PseudomonasHTMLParser()
         self.analyzer = PseudomonasDataAnalyzer()
-        self.html_generator = PseudomonasHTMLGenerator(self.analyzer)
+        self.generator = PseudomonasHTMLGenerator(self.analyzer)
         self.metadata = {
-            "tool_name": "GENIUS P. aeruginosa Sample-Centric Reporter",
-            "version": "1.0.0",
+            "tool_name": "PseudoScope Ultimate P. aeruginosa Reporter",
+            "version": "3.0.0",
             "author": "Brown Beckley <brownbeckley94@gmail.com>",
             "affiliation": "University of Ghana Medical School",
             "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "input_directory": str(self.input_dir)
+            "input_directory": str(self.input_dir),
         }
 
-    def find_html_files(self) -> Dict[str, List[Path]]:
-        print("🔍 Searching for HTML reports...")
-        html_files = {
-            'mlst': [], 'past': [], 'qc': []
-        }
-        # Only need HTML for MLST, PAST, and QC. AMR/Abricate/Mutation are TSV-only.
-        for html_file in self.input_dir.glob("**/*.html"):
-            name = html_file.name.lower()
-            if 'mlst' in name:
-                html_files['mlst'].append(html_file)
-            elif 'past' in name or 'serotype' in name:
-                html_files['past'].append(html_file)
-            elif 'fasta_qc' in name or 'qc_summary' in name:
-                html_files['qc'].append(html_file)
-        for k, v in html_files.items():
-            if v:
-                print(f"  📁 {k.upper()}: {len(v)} files found")
-        return html_files
+    def find_files(self):
+        print("🔍 Searching for PseudoScope reports...")
+        found = {'mlst_html': None, 'past_html': None, 'qc_html': None}
+        for f in self.input_dir.glob('**/*.html'):
+            n = f.name.lower()
+            if 'mlst_summary' in n and not found['mlst_html']:
+                found['mlst_html'] = f
+                print(f"    ✓ MLST: {f.name}")
+            elif 'past_summary' in n and not found['past_html']:
+                found['past_html'] = f
+                print(f"    ✓ PAST: {f.name}")
+            elif ('fasta_qc_summary' in n or 'fastaqc_summary' in n) and not found['qc_html']:
+                found['qc_html'] = f
+                print(f"    ✓ FASTA QC: {f.name}")
+        return found
 
-    def integrate_all_data(self, html_files: Dict[str, List[Path]]) -> Dict[str, Any]:
-        print("\n🔗 Integrating data (MLST/serotype from HTML; AMR/Virulence/Plasmid/Bacmet/Mutations from TSV strictly)...")
-        integrated = {
+    def integrate(self, files):
+        print("\n🔗 Integrating data...")
+        data = {
             'metadata': self.metadata,
             'samples': {},
             'patterns': {},
             'gene_centric': {},
             'qc_data': {},
-            'mutation_data': {},
-            'amr_details': {},
+            'amrfinder_details': {},
             'abricate_details': {},
-            'mutation_details': {}
+            'mutation_details': {},
+            'mge_details': {},
         }
+        mlst_data = self.parser.parse_mlst_report(files['mlst_html']) if files['mlst_html'] else {}
+        past_data = self.parser.parse_past_report(files['past_html']) if files['past_html'] else {}
+        if files['qc_html']:
+            data['qc_data'] = self.parser.parse_qc_report(files['qc_html'])
 
-        if html_files['qc']:
-            integrated['qc_data'] = self.parser.parse_qc_report(html_files['qc'][0])
-
-        mlst_data = {}
-        if html_files['mlst']:
-            mlst_data = self.parser.parse_mlst_report(html_files['mlst'][0])
-        else:
-            print("  ⚠️ No MLST HTML found; MLST data will be empty.")
-
-        past_data = {}
-        if html_files['past']:
-            past_data = self.parser.parse_past_report(html_files['past'][0])
-        else:
-            print("  ⚠️ No PAST HTML found; serotype data will be empty.")
-
-        # ---- Strict TSV loading for AMRfinder ----
-        amr_details, _ = self.parser.load_amrfinder_from_tsv(self.input_dir)
-        if amr_details:
-            print(f"  ✅ Loaded AMRfinder data for {len(amr_details)} samples from TSV")
-        else:
-            print("  ⚠️ AMRfinder TSV not found or empty; AMR tab will be empty.")
-
-        # ---- Strict TSV loading for ABRicate ----
-        abricate_details, _ = self.parser.load_abricate_from_tsv(self.input_dir)
-        if abricate_details:
-            print(f"  ✅ Loaded ABRicate data for {len(abricate_details)} samples from TSV")
-        else:
-            print("  ⚠️ ABRicate TSV not found or empty; virulence/plasmid/bacmet tabs will be empty.")
-
-        # ---- Strict TSV loading for Mutations ----
+        amr_details, amr_freq = self.parser.load_amrfinder_from_tsv(self.input_dir)
+        abricate_details, abricate_freq = self.parser.load_abricate_from_tsv(self.input_dir)
         mutation_details = self.parser.load_mutations_from_tsv(self.input_dir)
-        mutation_data = {}
-        if mutation_details:
-            print(f"  ✅ Loaded mutation data for {len(mutation_details)} samples from TSV")
-            # Convert to gene-centric mutation list for the mutation tab (if needed)
-            gene_mutation_dict = {}
-            genome_counts = defaultdict(int)
-            for sample, muts in mutation_details.items():
-                for m in muts:
-                    gene = m.get('gene', '')
-                    mutation = m.get('mutation', '')
-                    if gene and mutation:
-                        key = (gene, mutation)
-                        if key not in gene_mutation_dict:
-                            gene_mutation_dict[key] = {
-                                'gene': gene,
-                                'mutation': mutation,
-                                'class': m.get('class', ''),
-                                'subclass': m.get('subclass', ''),
-                                'genomes': []
-                            }
-                        gene_mutation_dict[key]['genomes'].append(sample)
-                        genome_counts[sample] += 1
-            mutations_list = []
-            for (gene, mutation), data in gene_mutation_dict.items():
-                data['count'] = len(data['genomes'])
-                mutations_list.append(data)
-            mutations_list.sort(key=lambda x: x['count'], reverse=True)
-            mutation_data = {
-                'mutations': mutations_list,
-                'genome_mutation_counts': dict(genome_counts)
-            }
-        else:
-            print("  ⚠️ Mutation TSV not found or empty; mutation tab will be empty.")
+        mge_details = self.parser.load_mge_from_tsv(self.input_dir)
 
-        # Collect all samples from all sources
-        all_samples = set()
-        all_samples.update(mlst_data.keys())
-        all_samples.update(past_data.keys())
-        all_samples.update(amr_details.keys())
-        all_samples.update(abricate_details.keys())
-        all_samples.update(integrated['qc_data'].keys())
+        data['amrfinder_details'] = amr_details
+        data['abricate_details'] = abricate_details
+        data['mutation_details'] = mutation_details
+        data['mge_details'] = mge_details
 
+        all_samples = (set(mlst_data) | set(past_data) | set(amr_details)
+                       | set(abricate_details) | set(data['qc_data']) | set(mutation_details)
+                       | set(mge_details))
+        all_samples = sorted(all_samples)
         if not all_samples:
-            print("❌ No samples found in any report!")
+            print("❌ No samples found in any report")
             return {}
-
         print(f"📊 Found {len(all_samples)} unique samples")
 
-        # Build sample entries
         for sample in all_samples:
-            virulence_genes = []
-            for db in ['vfdb', 'ecoli_vf', 'pa_vf', 'pseudomonas_vf']:
-                if db in abricate_details.get(sample, {}):
-                    for gene_dict in abricate_details[sample][db]:
-                        virulence_genes.append(gene_dict.get('gene', 'unknown'))
+            amr_genes = [g.get('gene', '') for g in amr_details.get(sample, [])
+                         if g.get('gene')]
+            vir_genes = []
+            for vir_db in ('vfdb', 'ecoli_vf', 'pa_vf', 'pseudomonas_vf'):
+                for g in abricate_details.get(sample, {}).get(vir_db, []):
+                    if g.get('gene'):
+                        vir_genes.append(g['gene'])
+            all_genes_for_t3ss = list(set(amr_genes + vir_genes))
+            t3ss = self.analyzer.derive_t3ss_pathotype(all_genes_for_t3ss)
 
-            integrated['samples'][sample] = {
-                'mlst': mlst_data.get(sample, {'ST': 'ND', 'Allele_Profile': 'ND'}),
-                'serotype': past_data.get(sample, {'O_Type': 'ND'}),
-                'amr_genes': [d.get('gene', 'unknown') for d in amr_details.get(sample, [])],
-                'virulence_genes': list(set(virulence_genes))
+            data['samples'][sample] = {
+                'typing': {
+                    'MLST':   mlst_data.get(sample, {}).get('ST', 'ND'),
+                    'O_Type': past_data.get(sample, {}).get('O_Type', 'ND'),
+                    'T3SS':   t3ss,
+                },
+                'amrfinder': {'all_genes': amr_genes},
+                'abricate_databases': {
+                    db: [g.get('gene', '') for g in gs if g.get('gene')]
+                    for db, gs in abricate_details.get(sample, {}).items()
+                },
             }
 
-        integrated['amr_details'] = amr_details
-        integrated['abricate_details'] = abricate_details
-        integrated['mutation_details'] = mutation_details
-
-        # Build gene_frequencies from the details (counts and genome lists)
         amr_gene_freq = {}
         for sample, genes in amr_details.items():
-            for gene_dict in genes:
-                gene = gene_dict.get('gene', 'unknown')
+            for g in genes:
+                gene = g.get('gene', '')
+                if not gene:
+                    continue
                 if gene not in amr_gene_freq:
                     amr_gene_freq[gene] = {'count': 0, 'genomes': []}
                 if sample not in amr_gene_freq[gene]['genomes']:
@@ -1848,217 +1979,177 @@ class GeniusPseudomonasSampleCentricReporter:
 
         abricate_gene_freq = {}
         for sample, dbs in abricate_details.items():
-            for db, genes in dbs.items():
+            for db, gs in dbs.items():
                 if db not in abricate_gene_freq:
                     abricate_gene_freq[db] = {}
-                for gene_dict in genes:
-                    gene = gene_dict.get('gene', 'unknown')
+                for g in gs:
+                    gene = g.get('gene', '')
+                    if not gene:
+                        continue
                     if gene not in abricate_gene_freq[db]:
                         abricate_gene_freq[db][gene] = {'count': 0, 'genomes': []}
                     if sample not in abricate_gene_freq[db][gene]['genomes']:
                         abricate_gene_freq[db][gene]['genomes'].append(sample)
                         abricate_gene_freq[db][gene]['count'] += 1
 
-        integrated['gene_frequencies'] = {
-            'amrfinder': amr_gene_freq,
-            'abricate': abricate_gene_freq
-        }
+        data['gene_frequencies'] = {'amrfinder': amr_gene_freq, 'abricate': abricate_gene_freq}
+        data['gene_centric'] = self.analyzer.create_gene_centric_tables(data)
+        data['patterns'] = self.analyzer.create_cross_genome_patterns(data)
+        return data
 
-        print("\n🧠 Processing gene-centric analysis...")
-        integrated['gene_centric'] = self.analyzer.create_gene_centric_tables(integrated)
-        integrated['patterns'] = self.analyzer.create_cross_genome_patterns(integrated)
+    def write_json(self, data):
+        print("\n📝 Writing JSON report...")
+        out = self.output_dir / "pseudoscope_ultimate_sample_centric_report.json"
 
-        integrated['mutation_data'] = mutation_data
+        def serial(obj):
+            if obj is None or isinstance(obj, (str, int, float, bool)):
+                return obj
+            if isinstance(obj, (list, tuple, set)):
+                return [serial(x) for x in obj]
+            if isinstance(obj, dict):
+                return {str(k): serial(v) for k, v in obj.items()}
+            if isinstance(obj, (Counter, defaultdict)):
+                return {str(k): serial(v) for k, v in obj.items()}
+            if isinstance(obj, Path):
+                return str(obj)
+            if hasattr(obj, 'isoformat'):
+                return obj.isoformat()
+            return str(obj)
 
-        return integrated
-
-    def generate_json_report(self, data: Dict[str, Any]) -> Path:
-        print("\n📝 Generating JSON report...")
-        out = self.output_dir / "genius_pseudomonas_sample_centric_report.json"
         with open(out, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, default=str)
+            json.dump(serial(data), f, indent=2, ensure_ascii=False)
         print(f"    ✅ JSON saved: {out}")
         return out
 
-    def generate_csv_reports(self, data: Dict[str, Any]):
-        print("\n📊 Generating CSV reports...")
-        samples_df = pd.DataFrame([{
-            'Sample': s,
-            'ST': d['mlst']['ST'],
-            'O_Type': d['serotype']['O_Type'],
-            'Virulence_Count': len(d['virulence_genes'])
-        } for s, d in data['samples'].items()])
-        samples_df.to_csv(self.output_dir / "sample_overview.csv", index=False)
+    def write_csvs(self, data):
+        print("\n📊 Writing CSV reports...")
+        rows = []
+        for sample, s in data['samples'].items():
+            t = s['typing']
+            vir_count = 0
+            for db in ('vfdb', 'ecoli_vf'):
+                vir_count += len(s.get('abricate_databases', {}).get(db, []))
+            rows.append({
+                'Sample': sample,
+                'MLST': t['MLST'],
+                'O_Type': t['O_Type'],
+                'T3SS_Pathotype': t['T3SS'],
+                'Virulence_Count': vir_count,
+            })
+        pd.DataFrame(rows).to_csv(self.output_dir / "sample_overview.csv", index=False)
 
-        amr_rows = []
-        for db, genes in data['gene_centric'].get('amr_databases', {}).items():
-            for g in genes:
-                amr_rows.append({
-                    'Gene': g['gene'],
-                    'Database': g['database'],
-                    'Count': g['count'],
-                    'Genomes': ';'.join(g['genomes'])
-                })
-        if amr_rows:
-            pd.DataFrame(amr_rows).to_csv(self.output_dir / "amr_genes.csv", index=False)
+        gc = data.get('gene_centric', {})
+        total = len(data['samples']) or 1
+        for cat, fname in [('amr_databases', 'amr_genes.csv'),
+                           ('virulence_databases', 'virulence_genes.csv'),
+                           ('bacmet_databases', 'bacmet_genes.csv'),
+                           ('plasmid_databases', 'plasmid_replicons.csv')]:
+            out = []
+            for db, gs in gc.get(cat, {}).items():
+                for g in gs:
+                    out.append({'Gene': g['gene'], 'Database': g['database'],
+                                'Count': g['count'],
+                                'Percentage': f"{(g['count'] / total) * 100:.1f}%",
+                                'Genomes': ';'.join(g.get('genomes', []))})
+            if out:
+                pd.DataFrame(out).to_csv(self.output_dir / fname, index=False)
 
-        vir_rows = []
-        for db, genes in data['gene_centric'].get('virulence_databases', {}).items():
-            for g in genes:
-                vir_rows.append({
-                    'Gene': g['gene'],
-                    'Database': g['database'],
-                    'Count': g['count'],
-                    'Genomes': ';'.join(g['genomes'])
-                })
-        if vir_rows:
-            pd.DataFrame(vir_rows).to_csv(self.output_dir / "virulence_genes.csv", index=False)
+        muts = data.get('mutation_details', {})
+        if muts:
+            rows = []
+            for sample, mlist in muts.items():
+                for m in mlist:
+                    rows.append({
+                        'Sample': sample,
+                        'Gene': m.get('gene', ''),
+                        'Mutation': m.get('mutation', ''),
+                        'Class': m.get('class', ''),
+                        'Contig': m.get('contig', ''),
+                        'Start': m.get('start', ''),
+                        'Stop': m.get('stop', ''),
+                        'Strand': m.get('strand', ''),
+                        'Coverage': m.get('coverage', ''),
+                        'Identity': m.get('identity', ''),
+                        'Accession': m.get('accession', ''),
+                    })
+            pd.DataFrame(rows).to_csv(self.output_dir / "mutations.csv", index=False)
 
-        plasmid_rows = []
-        for db, genes in data['gene_centric'].get('plasmid_databases', {}).items():
-            for g in genes:
-                plasmid_rows.append({
-                    'Replicon': g['gene'],
-                    'Database': g['database'],
-                    'Count': g['count'],
-                    'Genomes': ';'.join(g['genomes'])
-                })
-        if plasmid_rows:
-            pd.DataFrame(plasmid_rows).to_csv(self.output_dir / "plasmid_replicons.csv", index=False)
+        mge = data.get('mge_details', {})
+        if mge:
+            rows = []
+            for sample, hits in mge.items():
+                for h in hits:
+                    rows.append({'Sample': sample, **h})
+            if rows:
+                pd.DataFrame(rows).to_csv(self.output_dir / "mge_hits.csv", index=False)
 
-        bacmet_rows = []
-        for db, genes in data['gene_centric'].get('bacmet_databases', {}).items():
-            for g in genes:
-                bacmet_rows.append({
-                    'Gene': g['gene'],
-                    'Database': g['database'],
-                    'Count': g['count'],
-                    'Genomes': ';'.join(g['genomes'])
-                })
-        if bacmet_rows:
-            pd.DataFrame(bacmet_rows).to_csv(self.output_dir / "bacmet_genes.csv", index=False)
+        carb_rows = []
+        for sample, cats in data['patterns'].get('carbapenemase_by_sample', {}).items():
+            for cat, fams in cats.items():
+                for fam, raw_map in fams.items():
+                    for raw, dbs in raw_map.items():
+                        carb_rows.append({
+                            'Sample': sample, 'Category': cat, 'Family': fam,
+                            'Raw_Gene': raw, 'Databases': ';'.join(dbs),
+                            'Database_Count': len(dbs),
+                        })
+        if carb_rows:
+            pd.DataFrame(carb_rows).to_csv(
+                self.output_dir / "carbapenemase_classification.csv", index=False)
 
-        mutation_data = data.get('mutation_data', {})
-        mutations = mutation_data.get('mutations', [])
-        if mutations:
-            mut_rows = []
-            for m in mutations:
-                mut_rows.append({
-                    'Gene': m['gene'],
-                    'Mutation': m['mutation'],
-                    'Class': m['class'],
-                    'Subclass': m['subclass'],
-                    'Count': m['count'],
-                    'Genomes': ';'.join(m['genomes'])
-                })
-            pd.DataFrame(mut_rows).to_csv(self.output_dir / "mutations.csv", index=False)
-
-        cooc = data['patterns'].get('gene_cooccurrence', {})
-        cooc_list = []
-        for g1, partners in cooc.items():
-            for g2, cnt in partners.items():
-                if g1 < g2:
-                    cooc_list.append((g1, g2, cnt))
-        cooc_list.sort(key=lambda x: x[2], reverse=True)
-        if cooc_list:
-            pd.DataFrame(cooc_list[:100], columns=['Gene1', 'Gene2', 'Count']).to_csv(self.output_dir / "gene_cooccurrence.csv", index=False)
-
-        print("    ✅ CSV reports generated.")
+        print("    ✅ CSV reports written")
 
     def run(self):
         print("=" * 80)
-        print("🧠 GENIUS P. AERUGINOSA SAMPLE-CENTRIC REPORTER v1.0.0")
+        print("🧬 PSEUDOSCOPE ULTIMATE P. AERUGINOSA SAMPLE-CENTRIC REPORTER v3.0.0")
         print("=" * 80)
-        print(f"📁 Input directory: {self.input_dir}")
-
-        html_files = self.find_html_files()
-        data = self.integrate_all_data(html_files)
+        print(f"📁 Input:  {self.input_dir}")
+        print(f"📁 Output: {self.output_dir}")
+        files = self.find_files()
+        if not any(files.values()):
+            print("⚠️ No MLST/PAST/QC HTML found — will rely on TSVs only")
+        data = self.integrate(files)
         if not data:
-            print("❌ No data integrated!")
             return False
-
+        self.write_json(data)
+        self.write_csvs(data)
+        self.generator.generate_main_report(data, self.output_dir)
+        n = len(data['samples'])
+        n_mut = len(data.get('mutation_details', {}))
+        n_mge = len(data.get('mge_details', {}))
+        mge_hits = sum(len(v) for v in data.get('mge_details', {}).values())
         print("\n" + "=" * 80)
-        print("📊 GENERATING SAMPLE-CENTRIC REPORTS")
+        print("✅ REPORT COMPLETE")
         print("=" * 80)
-        self.generate_json_report(data)
-        self.generate_csv_reports(data)
-        self.html_generator.generate_main_report(data, self.output_dir)
-
-        total_samples = len(data['samples'])
-        patterns = data['patterns']
-        gene_centric = data['gene_centric']
-        total_amr = sum(len(genes) for genes in gene_centric.get('amr_databases', {}).values())
-        total_vir = sum(len(genes) for genes in gene_centric.get('virulence_databases', {}).values())
-        total_plasmid = sum(len(genes) for genes in gene_centric.get('plasmid_databases', {}).values())
-        total_bacmet = sum(len(genes) for genes in gene_centric.get('bacmet_databases', {}).values())
-        mutation_count = len(data.get('mutation_data', {}).get('mutations', []))
-
-        print("\n" + "=" * 80)
-        print("✅ SAMPLE-CENTRIC ANALYSIS COMPLETE!")
+        print(f"   Samples:               {n}")
+        print(f"   Samples with mutations: {n_mut}")
+        print(f"   Samples with MGE hits: {n_mge} ({mge_hits} total hits)")
+        print(f"   Output dir:            {self.output_dir}")
         print("=" * 80)
-        print(f"📁 Output directory: {self.output_dir}")
-        print(f"📄 Files generated:")
-        print(f"   • genius_pseudomonas_sample_centric_report.html (Interactive sample boxes)")
-        print(f"   • genius_pseudomonas_sample_centric_report.json (Complete data)")
-        print(f"   • sample_overview.csv")
-        print(f"   • amr_genes.csv")
-        print(f"   • virulence_genes.csv")
-        print(f"   • plasmid_replicons.csv")
-        print(f"   • bacmet_genes.csv")
-        if mutation_count > 0:
-            print(f"   • mutations.csv")
-        print(f"   • gene_cooccurrence.csv")
-        print(f"\n📈 ANALYSIS SUMMARY:")
-        print(f"   • {total_samples} total samples analyzed")
-        print(f"   • {total_amr} AMR genes")
-        print(f"   • {total_vir} virulence genes")
-        print(f"   • {total_plasmid} plasmid replicons")
-        print(f"   • {total_bacmet} Bacmet2 genes")
-        print(f"   • {mutation_count} unique point mutations")
-        print(f"   • {len(patterns.get('st_o_combinations', {}))} unique ST‑O combinations")
-        print("\n🎯 Next steps:")
-        print("   1. Open genius_pseudomonas_sample_centric_report.html in your browser")
-        print("   2. Explore the sample boxes in AMR, Virulence, Plasmid, Bacmet, and Mutation tabs")
-        print("   3. Use the filter controls to focus on specific isolates or databases")
-        print("   4. Check ST‑O combinations and gene co‑occurrence in Patterns tab")
-        print("   5. Export data using the Export tab or individual CSV buttons")
-        print("   6. Use the AI Guide to ask ChatGPT/Claude about your JSON data")
-        print("\n" + "=" * 80)
         return True
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='GENIUS P. aeruginosa Sample-Centric Reporter (v1.0.0) - Hybrid TSV/HTML with Sample Boxes',
+    p = argparse.ArgumentParser(
+        description='PseudoScope Ultimate P. aeruginosa Sample-Centric Reporter v3.0.0',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python p_sample_centric.py -i /path/to/html/reports
+        epilog="""Examples:
+  python pseudoscope_sample_centric.py -i /path/to/reports
 
-Author: Brown Beckley <brownbeckley94@gmail.com>
-Affiliation: University of Ghana Medical School, Department of Medical Biochemistry
-        """
-    )
-    parser.add_argument('-i', '--input-dir', required=True,
-                        help='Directory containing HTML report files and TSV summaries')
-    parser.add_argument('-o', '--output-dir',
-                        help='Custom output directory (default: input_dir/GENIUS_PSEUDOMONAS_SAMPLE_CENTRIC_REPORTS)')
-
-    args = parser.parse_args()
-    input_dir = Path(args.input_dir)
-
-    if not input_dir.exists():
-        print(f"❌ Input directory not found: {input_dir}")
+Author: Brown Beckley <brownbeckley94@gmail.com>""")
+    p.add_argument('-i', '--input-dir', required=True)
+    p.add_argument('-o', '--output-dir')
+    args = p.parse_args()
+    inp = Path(args.input_dir)
+    if not inp.exists():
+        print(f"❌ Input directory not found: {inp}")
         sys.exit(1)
-
-    reporter = GeniusPseudomonasSampleCentricReporter(input_dir)
-
+    reporter = PseudomonasUltimateReporter(inp)
     if args.output_dir:
         reporter.output_dir = Path(args.output_dir)
         reporter.output_dir.mkdir(parents=True, exist_ok=True)
-
-    success = reporter.run()
-    sys.exit(0 if success else 1)
+    if not reporter.run():
+        sys.exit(1)
 
 
 if __name__ == "__main__":

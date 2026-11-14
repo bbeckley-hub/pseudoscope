@@ -4,7 +4,13 @@ PseudoScope - MLST Module for Pseudomonas aeruginosa
 Author: Brown Beckley <brownbeckley94@gmail.com>
 GitHub: bbeckley-hub
 Affiliation: University of Ghana Medical School - Department of Medical Biochemistry
-Date: 2026-07-225
+Date: 2026-10-02
+
+Note on invocation:
+    The bundled `bin/mlst` is a Perl script. We invoke it via the `perl`
+    interpreter rather than executing the file directly. This makes the
+    pipeline robust against zip/tar round-trips that strip the Unix
+    executable bit — perl only needs read access. 
 """
 
 import os
@@ -15,23 +21,27 @@ import argparse
 import subprocess
 import random
 import shutil
-import pandas as pd  
+import tempfile
+import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Any
 from datetime import datetime
 
+
 class PseudoMLSTAnalyzer:
-    """Single‑scheme MLST analyzer for P. aeruginosa (paeruginosa)."""
+    """Single-scheme MLST analyzer for P. aeruginosa (Pasteur scheme)."""
 
     def __init__(self, base_dir: Path):
         self.base_dir = base_dir
         self.mlst_bin = self._find_mlst_binary()
+        # Defensive: restore exec bit on anything in bin/ (zip round-trips strip it)
+        self._restore_exec_bits(self.base_dir / "bin")
         self.scheme = "paeruginosa"
-        self.scheme_display = "OXFORD"
+        self.scheme_display = "PASTEUR"
         self.db_path = base_dir / "db" / "pubmlst" / self.scheme
         self._check_db()
 
-        # ASCII art for reports
+        # ASCII art
         self.ascii_art = r"""
 ██████╗ ███████╗███████╗██╗   ██╗██████╗  ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗
 ██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██╔═══██╗██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
@@ -52,6 +62,9 @@ class PseudoMLSTAnalyzer:
             {"text": "The science of today is the technology of tomorrow.", "author": "Edward Teller"},
         ]
 
+    # ------------------------------------------------------------------
+    # Binary / exec helpers
+    # ------------------------------------------------------------------
     def _find_mlst_binary(self) -> Path:
         """Locate mlst binary in bin/ directory or system PATH."""
         local_bin = self.base_dir / "bin" / "mlst"
@@ -61,6 +74,33 @@ class PseudoMLSTAnalyzer:
         if system_bin:
             return Path(system_bin)
         raise FileNotFoundError("mlst binary not found in bin/ or in PATH")
+
+    @staticmethod
+    def _restore_exec_bits(root: Path) -> None:
+        """Restore the +x bit on anything under `root` that should be runnable.
+
+        zipfile.extractall() and some NFS configurations strip Unix mode bits.
+        Perl scripts and shell scripts only need read access when invoked via
+        their interpreter, but restoring +x keeps the tree clean and matches
+        upstream conventions.
+        """
+        if not root.exists():
+            return
+        executable_exts = {".pl", ".sh", ".py"}
+        for f in root.rglob("*"):
+            if not f.is_file():
+                continue
+            try:
+                needs_chmod = (
+                    # Anything directly in bin/ or scripts/ is expected to run
+                    f.parent.name in ("bin", "scripts")
+                    or f.suffix.lower() in executable_exts
+                )
+                if needs_chmod:
+                    f.chmod(f.stat().st_mode | 0o755)
+            except Exception:
+                # Non-fatal — we invoke via perl anyway
+                pass
 
     def _check_db(self):
         """Verify that the scheme database exists."""
@@ -74,13 +114,16 @@ class PseudoMLSTAnalyzer:
     def get_random_quote(self):
         return random.choice(self.science_quotes)
 
+    # ------------------------------------------------------------------
+    # FASTA discovery
+    # ------------------------------------------------------------------
     def find_fasta_files(self, input_path: str) -> List[Path]:
-        """Find FASTA files from a file, directory, or glob pattern."""
         if os.path.isfile(input_path):
             return [Path(input_path)]
 
         if os.path.isdir(input_path):
-            patterns = ["**/*.fna", "**/*.fasta", "**/*.fa", "**/*.fn", "**/*.gb", "**/*.gbk", "**/*.gbff"]
+            patterns = ["**/*.fna", "**/*.fasta", "**/*.fa", "**/*.fn",
+                        "**/*.gb", "**/*.gbk", "**/*.gbff"]
             files = []
             for pat in patterns:
                 files.extend(glob.glob(os.path.join(input_path, pat), recursive=True))
@@ -95,14 +138,15 @@ class PseudoMLSTAnalyzer:
         return sorted(set(fasta_files))
 
     def _is_fasta(self, path: Path) -> bool:
-        """Quick check for FASTA format."""
         try:
             with open(path, 'r') as f:
-                first = f.readline().strip()
-                return first.startswith('>')
-        except:
+                return f.readline().strip().startswith('>')
+        except Exception:
             return False
 
+    # ------------------------------------------------------------------
+    # Core MLST runner
+    # ------------------------------------------------------------------
     def run_mlst(self, input_file: Path, out_dir: Path) -> Dict[str, Any]:
         """Run mlst on a single FASTA file and return parsed results."""
         print(f"🔬 Processing: {input_file.name}")
@@ -110,20 +154,26 @@ class PseudoMLSTAnalyzer:
         sample_dir = out_dir / input_file.stem
         sample_dir.mkdir(parents=True, exist_ok=True)
 
-        raw_out = sample_dir / "mlst_raw_output.txt"
-
+        # NOTE: invoke via `perl` explicitly. The bundled mlst is a perl script
+        # and this makes the pipeline robust against stripped exec bits (zip
+        # extraction, NFS, some container filesystems).
         cmd = [
-            str(self.mlst_bin),
+            "perl", str(self.mlst_bin),
             str(input_file),
             "--scheme", self.scheme,
             "--csv",
-            "--nopath"
+            "--nopath",
         ]
 
+        # The perl mlst script reads its database location from MLST_DATADIR.
+        # Set it explicitly so an updated user-local db is always picked up.
+        env = os.environ.copy()
+        env["MLST_DATADIR"] = str(self.base_dir / "db")
+
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            with open(raw_out, 'w') as f:
-                f.write(result.stdout)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=True, env=env,
+            )
 
             mlst_data = self._parse_mlst_output(result.stdout, input_file.name)
             self._generate_reports(mlst_data, sample_dir)
@@ -132,10 +182,13 @@ class PseudoMLSTAnalyzer:
             print(f"✅ {input_file.name} -> ST{st_display}")
             return mlst_data
 
+        except FileNotFoundError as e:
+            # `perl` itself not on PATH
+            print(f"❌ MLST failed for {input_file.name}: perl not found ({e})")
+            return self._empty_result(input_file.name)
+
         except subprocess.CalledProcessError as e:
             print(f"❌ MLST failed for {input_file.name}")
-            with open(raw_out, 'w') as f:
-                f.write(f"ERROR: {e.stderr}\n{e.stdout}")
             return self._empty_result(input_file.name)
 
     def _parse_mlst_output(self, stdout: str, filename: str) -> Dict[str, Any]:
@@ -155,7 +208,7 @@ class PseudoMLSTAnalyzer:
             return self._empty_result(filename)
 
         st_raw = parts[2]
-        if st_raw == '-' or st_raw == '' or st_raw == '0':
+        if st_raw in ('-', '', '0'):
             st = "UNKNOWN"
         else:
             st = st_raw.lstrip('ST')
@@ -181,7 +234,12 @@ class PseudoMLSTAnalyzer:
             "allele_profile": '-'.join(allele_parts) if allele_parts else "",
             "confidence": "HIGH" if st != "UNKNOWN" else "LOW",
             "mlst_assigned": st != "UNKNOWN",
-            "pubmlst_link": f"https://pubmlst.org/bigsdb?db=pubmlst_paeruginosa_isolates&page=query&scheme_id=1&ST={st}" if st.isdigit() else "https://pubmlst.org/organisms/pseudomonas-aeruginosa"
+            "pubmlst_link": (
+                f"https://pubmlst.org/bigsdb?db=pubmlst_paeruginosa_isolates"
+                f"&page=query&scheme_id=1&ST={st}"
+                if st.isdigit()
+                else "https://pubmlst.org/organisms/pseudomonas-aeruginosa"
+            ),
         }
 
     def _empty_result(self, filename: str) -> Dict[str, Any]:
@@ -195,76 +253,29 @@ class PseudoMLSTAnalyzer:
             "allele_profile": "",
             "confidence": "LOW",
             "mlst_assigned": False,
-            "pubmlst_link": "https://pubmlst.org/organisms/pseudomonas-aeruginosa"
+            "pubmlst_link": "https://pubmlst.org/organisms/pseudomonas-aeruginosa",
         }
 
+    # ------------------------------------------------------------------
+    # Report writers
+    # ------------------------------------------------------------------
     def _generate_reports(self, data: Dict[str, Any], out_dir: Path):
-        """Create HTML, text, TSV, and JSON reports."""
-        self._write_text_report(data, out_dir)
         self._write_tsv_report(data, out_dir)
-        self._write_json_report(data, out_dir)
         self._write_html_report(data, out_dir)
 
-    def _write_text_report(self, data: Dict, out_dir: Path):
-        lines = [
-            "PSEUDOSCOPE - MLST Analysis Report",
-            "======================================",
-            f"Sample: {data['sample']}",
-            f"Original File: {data['original_filename']}",
-            f"Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"MLST Scheme: {data['scheme_display']}",
-            "",
-            "MLST TYPING RESULTS:",
-            "-------------------",
-            f"Sequence Type (ST): {data['st']}",
-            f"Confidence: {data['confidence']}",
-            f"MLST Status: {'Assigned' if data['mlst_assigned'] else 'Not Assigned'}",
-            "",
-            f"Allele Profile ({data['scheme_display']} scheme):",
-            data['allele_profile'],
-            "",
-            "Detailed Alleles:",
-        ]
-        if data['alleles']:
-            for g, a in data['alleles'].items():
-                lines.append(f"  {g}: {a}")
-        else:
-            lines.append("  No alleles detected")
-        lines.append("")
-        lines.append(f"PubMLST Link: {data['pubmlst_link']}")
-
-        with open(out_dir / "mlst_report.txt", 'w') as f:
-            f.write('\n'.join(lines))
-
     def _write_tsv_report(self, data: Dict, out_dir: Path):
-        tsv_line = f"{data['sample']}\t{data['original_filename']}\t{data['scheme_display'].lower()}\t{data['scheme']}\t{data['st']}\t{'Assigned' if data['mlst_assigned'] else 'Not Assigned'}\t{data['confidence']}\t{data['allele_profile']}\n"
+        tsv_line = (
+            f"{data['sample']}\t{data['original_filename']}\t"
+            f"{data['scheme_display'].lower()}\t{data['scheme']}\t{data['st']}\t"
+            f"{'Assigned' if data['mlst_assigned'] else 'Not Assigned'}\t"
+            f"{data['confidence']}\t{data['allele_profile']}\n"
+        )
         with open(out_dir / "mlst_report.tsv", 'w') as f:
-            f.write("Sample\tOriginal_File\tScheme\tMLST_Database\tST\tMLST_Status\tConfidence\tAllele_Profile\n")
+            f.write("Sample\tOriginal_File\tScheme\tMLST_Database\tST\t"
+                    "MLST_Status\tConfidence\tAllele_Profile\n")
             f.write(tsv_line)
 
-    def _write_json_report(self, data: Dict, out_dir: Path):
-        with open(out_dir / "mlst_report.json", 'w') as f:
-            json.dump({
-                "metadata": {
-                    "sample": data['sample'],
-                    "original_filename": data['original_filename'],
-                    "analysis_date": datetime.now().isoformat(),
-                    "scheme": data['scheme'],
-                    "scheme_display": data['scheme_display'],
-                    "version": "1.0.0",
-                    "tool": "PseudoScope"
-                },
-                "mlst_results": {
-                    "sequence_type": data['st'],
-                    "confidence": data['confidence'],
-                    "mlst_assigned": data['mlst_assigned'],
-                    "allele_profile": data['allele_profile'],
-                    "alleles": data['alleles']
-                }
-            }, f, indent=2)
-
     def _write_html_report(self, data: Dict, out_dir: Path):
-        """Individual HTML report with ASCII art, quote, and footer."""
         quote = self.get_random_quote()
         html = f'''<!DOCTYPE html>
 <html lang="en">
@@ -275,7 +286,7 @@ class PseudoMLSTAnalyzer:
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
-            background: linear-gradient(135deg, #2c0b0e 0%, #4a1c20 50%, #6b2b2f 100%);
+            background: linear-gradient(135deg, #2A1408 0%, #5C2E0B 40%, #8B4513 100%);
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #fff;
             padding: 20px;
@@ -283,52 +294,53 @@ class PseudoMLSTAnalyzer:
         }}
         .container {{ max-width: 1400px; margin: 0 auto; }}
         .ascii-container {{
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.75);
             padding: 20px;
             border-radius: 15px;
             margin-bottom: 20px;
-            border: 2px solid #dc3545;
+            border: 2px solid rgba(210,180,140,0.4);
             overflow-x: auto;
             text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
         }}
         .ascii-art {{
             font-family: 'Courier New', monospace;
             font-size: 10px;
             line-height: 1.1;
             white-space: pre;
-            color: #dc3545;
-            text-shadow: 0 0 10px rgba(220,53,69,0.5);
+            color: #E8C39E;
+            text-shadow: 0 0 10px rgba(232,195,158,0.4);
             display: inline-block;
             text-align: left;
         }}
         .quote-container {{
-            background: rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.08);
             backdrop-filter: blur(10px);
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 30px;
             text-align: center;
-            border-left: 4px solid #dc3545;
+            border-left: 4px solid #8B4513;
         }}
         .quote-text {{ font-size: 18px; font-style: italic; margin-bottom: 5px; }}
-        .quote-author {{ font-size: 14px; color: #fbbf24; }}
+        .quote-author {{ font-size: 14px; color: #E8C39E; }}
         .card {{
-            background: rgba(255,255,255,0.95);
-            color: #1f2937;
+            background: rgba(255,255,255,0.96);
+            color: #2c2c2c;
             padding: 25px;
             border-radius: 10px;
             margin-bottom: 20px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }}
-        h2 {{ color: #a71d2a; border-bottom: 3px solid #dc3545; padding-bottom: 10px; margin-bottom: 20px; }}
-        h3 {{ color: #a71d2a; margin: 20px 0 10px; }}
+        h2 {{ color: #5C2E0B; border-bottom: 3px solid #8B4513; padding-bottom: 10px; margin-bottom: 20px; }}
+        h3 {{ color: #5C2E0B; margin: 20px 0 10px; }}
         .grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
         }}
         .metric {{
-            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            background: linear-gradient(135deg, #A0522D 0%, #5C2E0B 100%);
             color: white;
             padding: 20px;
             border-radius: 8px;
@@ -337,10 +349,10 @@ class PseudoMLSTAnalyzer:
         .metric .label {{ font-size: 14px; opacity: 0.9; }}
         .metric .value {{ font-size: 28px; font-weight: bold; word-wrap: break-word; }}
         .profile-box {{
-            background: #f8fafc;
+            background: #fdf6ec;
             padding: 15px;
             border-radius: 8px;
-            border-left: 4px solid #dc3545;
+            border-left: 4px solid #8B4513;
             font-family: monospace;
             white-space: pre-wrap;
             word-wrap: break-word;
@@ -352,7 +364,7 @@ class PseudoMLSTAnalyzer:
             margin-top: 15px;
         }}
         .allele-item {{
-            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            background: linear-gradient(135deg, #A0522D 0%, #5C2E0B 100%);
             color: white;
             padding: 12px;
             border-radius: 6px;
@@ -363,13 +375,13 @@ class PseudoMLSTAnalyzer:
             text-align: center;
             margin-top: 30px;
             padding: 20px;
-            background: rgba(0,0,0,0.3);
+            background: rgba(0,0,0,0.35);
             border-radius: 10px;
             font-size: 14px;
         }}
-        .footer a {{ color: #dc3545; text-decoration: none; }}
+        .footer a {{ color: #E8C39E; text-decoration: none; }}
         .footer a:hover {{ text-decoration: underline; }}
-        .timestamp {{ color: #fbbf24; }}
+        .timestamp {{ color: #E8C39E; }}
     </style>
     <script>
         const quotes = {json.dumps(self.science_quotes)};
@@ -380,7 +392,7 @@ class PseudoMLSTAnalyzer:
             if (q && a) {{
                 idx = (idx + 1) % quotes.length;
                 q.innerText = `"${{quotes[idx].text}}"`;
-                a.innerText = `— ${{quotes[idx].author}}`;
+                a.innerText = `\\u2014 ${{quotes[idx].author}}`;
             }}
         }}
         setInterval(rotateQuote, 10000);
@@ -405,7 +417,7 @@ class PseudoMLSTAnalyzer:
         <h2>🧬 MLST Results</h2>
         <div class="grid">
             <div class="metric"><span class="label">Sequence Type (ST)</span><div class="value">ST{data['st']}</div></div>
-            <div class="metric"><span class="label">Confidence</span><div class="value" style="color: {'#28a745' if data['confidence']=='HIGH' else '#dc3545'};">{data['confidence']}</div></div>
+            <div class="metric"><span class="label">Confidence</span><div class="value" style="color: {'#28a745' if data['confidence']=='HIGH' else '#5C2E0B'};">{data['confidence']}</div></div>
         </div>
         <h3>Allele Profile</h3>
         <div class="profile-box">{data['allele_profile']}</div>
@@ -418,20 +430,31 @@ class PseudoMLSTAnalyzer:
         else:
             html += '            <div class="allele-item" style="grid-column:1/-1;">No alleles detected</div>\n'
         html += f'''        </div>
-        <p style="text-align:center; margin-top:20px;"><a href="{data['pubmlst_link']}" target="_blank" style="background:#dc3545; color:white; padding:8px 16px; border-radius:4px; text-decoration:none;">🔗 View on PubMLST</a></p>
+        <p style="text-align:center; margin-top:20px;"><a href="{data['pubmlst_link']}" target="_blank" style="background:#8B4513; color:white; padding:8px 16px; border-radius:4px; text-decoration:none;">🔗 View on PubMLST</a></p>
     </div>
     <div class="footer">
-        <p><strong>PSEUDOSCOPE</strong> — P. aeruginosa MLST Module</p>
-        <p>Author: <a href="mailto:brownbeckley94@gmail.com">Brown Beckley</a> | GitHub: <a href="https://github.com/bbeckley-hub" target="_blank">bbeckley-hub</a></p>
-        <p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
-        <p class="timestamp">Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    </div>
+<p><strong>PSEUDOSCOPE</strong> - MLST Sequence Typing</p>
+<p class="timestamp">Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<div class="authorship">
+<p><strong>Technical Support &amp; Inquiries:</strong></p>
+<p>Maintainer: Brown Beckley</p>
+<p>GitHub: <a href="https://github.com/bbeckley-hub" style="color:#E8C39E;">bbeckley-hub</a></p>
+<p>Email: <a href="mailto:brownbeckley94@gmail.com" style="color:#E8C39E;">brownbeckley94@gmail.com</a></p>
+<p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
+<p style="margin-top:10px;font-size:11px;opacity:0.8;">
+Powered by mlst (Seemann) and the PubMLST database
+</p>
+</div>
+</div>
 </div>
 </body>
 </html>'''
         with open(out_dir / "mlst_report.html", 'w', encoding='utf-8') as f:
             f.write(html)
 
+    # ------------------------------------------------------------------
+    # Batch processing
+    # ------------------------------------------------------------------
     def process(self, input_path: str, out_dir: Path, batch: bool = False):
         fasta_files = self.find_fasta_files(input_path)
         if not fasta_files:
@@ -449,21 +472,20 @@ class PseudoMLSTAnalyzer:
             res = self.run_mlst(f, out_dir)
             all_results.append(res)
 
-        # Always create summary files (even for a single sample)
         if all_results:
             self._create_summary(all_results, out_dir)
 
         print(f"\n✅ Analysis complete. Results in: {out_dir}")
 
     def _create_summary(self, results: List[Dict], out_dir: Path):
-        """Generate summary CSV/JSON/HTML for any number of samples (1 or more)."""
         df = pd.DataFrame([
             {
                 "Sample": r['sample'],
                 "ST": r['st'],
                 "Confidence": r['confidence'],
-                "Allele_Profile": r['allele_profile']
-            } for r in results
+                "Allele_Profile": r['allele_profile'],
+            }
+            for r in results
         ])
 
         csv_path = out_dir / "mlst_summary.csv"
@@ -476,16 +498,15 @@ class PseudoMLSTAnalyzer:
                 "metadata": {
                     "analysis_date": datetime.now().isoformat(),
                     "scheme": self.scheme,
-                    "samples_analyzed": len(results)
+                    "samples_analyzed": len(results),
                 },
-                "results": results
+                "results": results,
             }, f, indent=2)
         print(f"✅ Summary JSON: {json_path}")
 
         self._write_batch_html(results, out_dir)
 
     def _write_batch_html(self, results: List[Dict], out_dir: Path):
-        """Batch/single summary HTML with ASCII art, quotes, search, scrollable table."""
         quote = self.get_random_quote()
         rows = ''
         for i, r in enumerate(results, 1):
@@ -507,7 +528,7 @@ class PseudoMLSTAnalyzer:
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
-            background: linear-gradient(135deg, #2c0b0e 0%, #4a1c20 50%, #6b2b2f 100%);
+            background: linear-gradient(135deg, #2A1408 0%, #5C2E0B 40%, #8B4513 100%);
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #fff;
             padding: 20px;
@@ -515,35 +536,36 @@ class PseudoMLSTAnalyzer:
         }}
         .container {{ max-width: 1600px; margin: 0 auto; }}
         .ascii-container {{
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.75);
             padding: 20px;
             border-radius: 15px;
             margin-bottom: 20px;
-            border: 2px solid #dc3545;
+            border: 2px solid rgba(210,180,140,0.4);
             overflow-x: auto;
             text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
         }}
         .ascii-art {{
             font-family: 'Courier New', monospace;
             font-size: 10px;
             line-height: 1.1;
             white-space: pre;
-            color: #dc3545;
-            text-shadow: 0 0 10px rgba(220,53,69,0.5);
+            color: #E8C39E;
+            text-shadow: 0 0 10px rgba(232,195,158,0.4);
             display: inline-block;
             text-align: left;
         }}
         .quote-container {{
-            background: rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.08);
             backdrop-filter: blur(10px);
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 30px;
             text-align: center;
-            border-left: 4px solid #dc3545;
+            border-left: 4px solid #8B4513;
         }}
         .quote-text {{ font-size: 18px; font-style: italic; margin-bottom: 5px; }}
-        .quote-author {{ font-size: 14px; color: #fbbf24; }}
+        .quote-author {{ font-size: 14px; color: #E8C39E; }}
         .stats {{
             display: flex;
             justify-content: space-around;
@@ -552,7 +574,7 @@ class PseudoMLSTAnalyzer:
             margin-bottom: 20px;
         }}
         .stat-card {{
-            background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%);
+            background: linear-gradient(135deg, #A0522D 0%, #5C2E0B 100%);
             padding: 20px;
             border-radius: 10px;
             text-align: center;
@@ -575,14 +597,14 @@ class PseudoMLSTAnalyzer:
         }}
         button {{
             padding: 10px 20px;
-            background: #dc3545;
+            background: #8B4513;
             color: white;
             border: none;
             border-radius: 5px;
             cursor: pointer;
             font-size: 16px;
         }}
-        button:hover {{ background: #c82333; }}
+        button:hover {{ background: #A0522D; }}
         .table-container {{
             max-height: 500px;
             overflow-y: auto;
@@ -593,11 +615,11 @@ class PseudoMLSTAnalyzer:
             width: 100%;
             border-collapse: collapse;
             background: white;
-            color: #1f2937;
+            color: #2c2c2c;
             font-size: 14px;
         }}
         th {{
-            background: #dc3545;
+            background: #5C2E0B;
             color: white;
             padding: 12px;
             position: sticky;
@@ -611,20 +633,20 @@ class PseudoMLSTAnalyzer:
         }}
         tr:hover {{ background-color: #f8f9fa; }}
         .assigned {{ color: #28a745; font-weight: bold; }}
-        .unknown {{ color: #dc3545; font-weight: bold; }}
+        .unknown {{ color: #5C2E0B; font-weight: bold; }}
         .conf-high {{ color: #28a745; }}
-        .conf-low {{ color: #dc3545; }}
+        .conf-low {{ color: #5C2E0B; }}
         .profile {{ white-space: pre-wrap; word-wrap: break-word; max-width: 300px; }}
         .footer {{
             text-align: center;
             margin-top: 30px;
             padding: 20px;
-            background: rgba(0,0,0,0.3);
+            background: rgba(0,0,0,0.35);
             border-radius: 10px;
         }}
-        .footer a {{ color: #dc3545; text-decoration: none; }}
+        .footer a {{ color: #E8C39E; text-decoration: none; }}
         .footer a:hover {{ text-decoration: underline; }}
-        .timestamp {{ color: #fbbf24; }}
+        .timestamp {{ color: #E8C39E; }}
     </style>
     <script>
         function filterTable() {{
@@ -644,7 +666,7 @@ class PseudoMLSTAnalyzer:
             if (q && a) {{
                 idx = (idx + 1) % quotes.length;
                 q.innerText = `"${{quotes[idx].text}}"`;
-                a.innerText = `— ${{quotes[idx].author}}`;
+                a.innerText = `\\u2014 ${{quotes[idx].author}}`;
             }}
         }}
         setInterval(rotateQuote, 10000);
@@ -677,11 +699,19 @@ class PseudoMLSTAnalyzer:
         </table>
     </div>
     <div class="footer">
-        <p><strong>PSEUDOSCOPE</strong> — P. aeruginosa MLST Module</p>
-        <p>Author: <a href="mailto:brownbeckley94@gmail.com">Brown Beckley</a> | GitHub: <a href="https://github.com/bbeckley-hub" target="_blank">bbeckley-hub</a></p>
-        <p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
-        <p class="timestamp">Summary generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    </div>
+<p><strong>PSEUDOSCOPE</strong> - MLST Sequence Typing</p>
+<p class="timestamp">Summary generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<div class="authorship">
+<p><strong>Technical Support &amp; Inquiries:</strong></p>
+<p>Maintainer: Brown Beckley</p>
+<p>GitHub: <a href="https://github.com/bbeckley-hub" style="color:#E8C39E;">bbeckley-hub</a></p>
+<p>Email: <a href="mailto:brownbeckley94@gmail.com" style="color:#E8C39E;">brownbeckley94@gmail.com</a></p>
+<p>Affiliation: University of Ghana Medical School - Department of Medical Biochemistry</p>
+<p style="margin-top:10px;font-size:11px;opacity:0.8;">
+Powered by mlst (Seemann) and the PubMLST database
+</p>
+</div>
+</div>
 </div>
 </body>
 </html>'''
@@ -690,14 +720,146 @@ class PseudoMLSTAnalyzer:
         print(f"✅ Summary HTML: {out_dir / 'mlst_summary.html'}")
 
 
+# ---------------------------------------------------------------------------
+# Database update / pull logic
+# ---------------------------------------------------------------------------
+
+def update_mlst_database(db_dir: Path, script_dir: Path, scheme: str = "paeruginosa") -> bool:
+    """
+    Download all MLST schemes via mlstdb, keep only the P. aeruginosa (Pasteur)
+    scheme inside db_dir, prune the rest, and rebuild the BLAST index.
+
+    Args:
+        db_dir: Target database root; will contain pubmlst/ and blast/.
+        script_dir: Directory containing the mlst binary (i.e. <base>/bin).
+        scheme: Scheme folder name to keep (default: paeruginosa).
+
+    Returns:
+        True on success, False otherwise.
+    """
+    if not shutil.which('mlstdb'):
+        print("❌ 'mlstdb' not found. Install with: pip install mlstdb")
+        print("   Then set up API key: mlstdb connect --db pubmlst --api-key")
+        return False
+
+    db_dir.mkdir(parents=True, exist_ok=True)
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="pseudoscope_mlst_update_"))
+    print(f"📂 Temporary download directory: {temp_dir}")
+
+    try:
+        print("🔄 Running mlstdb update (full download, may take 10-20 minutes)...")
+        print("   Progress will be shown below:\n")
+
+        result = subprocess.run(
+            ['mlstdb', 'update'],
+            input='y\n',
+            text=True,
+            cwd=temp_dir,
+            env=os.environ.copy(),
+        )
+
+        if result.returncode != 0:
+            print(f"\n❌ mlstdb update failed with exit code {result.returncode}")
+            return False
+
+        print("\n✅ Download completed.")
+
+        scheme_src = temp_dir / "pubmlst" / scheme
+        if not scheme_src.exists():
+            print(f"❌ Scheme '{scheme}' not found in downloaded data.")
+            return False
+
+        target_pubmlst = db_dir / "pubmlst"
+        target_pubmlst.mkdir(parents=True, exist_ok=True)
+        target_scheme = target_pubmlst / scheme
+        if target_scheme.exists():
+            shutil.rmtree(target_scheme)
+        shutil.copytree(scheme_src, target_scheme)
+        print(f"📁 Copied scheme '{scheme}' to {target_scheme}")
+
+        blast_src = temp_dir / "blast"
+        if blast_src.exists():
+            target_blast = db_dir / "blast"
+            if target_blast.exists():
+                shutil.rmtree(target_blast)
+            shutil.copytree(blast_src, target_blast)
+            print(f"📁 Copied BLAST database to {target_blast}")
+
+        removed = 0
+        for item in target_pubmlst.iterdir():
+            if item.is_dir() and item.name != scheme:
+                shutil.rmtree(item)
+                removed += 1
+                print(f"   🗑️  Removed scheme: {item.name}")
+        if removed:
+            print(f"✅ Removed {removed} non-target schemes.")
+        else:
+            print("✅ No extra schemes to remove.")
+
+        rebuild_script = script_dir.parent / "scripts" / "mlst-make_blast_db"
+        if not rebuild_script.exists():
+            alt = script_dir / "mlst-make_blast_db"
+            if alt.exists():
+                rebuild_script = alt
+
+        if rebuild_script.exists():
+            print(f"🔄 Rebuilding BLAST database for {scheme}...")
+            rebuild_env = os.environ.copy()
+            rebuild_env["MLST_DATADIR"] = str(db_dir)
+            try:
+                subprocess.run(
+                    ['perl', str(rebuild_script)],
+                    check=True,
+                    cwd=str(script_dir.parent),
+                    env=rebuild_env,
+                )
+                print("✅ BLAST database rebuilt successfully.")
+            except subprocess.CalledProcessError as e:
+                print(f"⚠️  BLAST rebuild failed ({e}); the mlstdb download already")
+                print("   produced a blast/ directory, so analysis can still proceed.")
+        else:
+            print(f"⚠️  mlst-make_blast_db not found at {rebuild_script}")
+            print("    The mlstdb download already produced a blast/ directory,")
+            print("    so analysis can proceed; rebuild manually if you see errors.")
+
+        print(f"✅ MLST database updated and pruned to '{scheme}' only in {db_dir}")
+        return True
+
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Update failed: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        return False
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        print(f"🧹 Removed temporary directory: {temp_dir}")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
 def main():
-    parser = argparse.ArgumentParser(description="PseudoScope MLST for P. aeruginosa (single scheme)")
-    parser.add_argument('-i', '--input', required=True, help='Input FASTA file, directory, or glob pattern')
-    parser.add_argument('-o', '--output', required=True, help='Output directory')
+    parser = argparse.ArgumentParser(description="PseudoScope MLST for P. aeruginosa (Pasteur scheme)")
+    parser.add_argument('-i', '--input', help='Input FASTA file, directory, or glob pattern')
+    parser.add_argument('-o', '--output', help='Output directory')
     parser.add_argument('--batch', action='store_true', help='Process multiple files (use with glob/directory)')
+    parser.add_argument('--update-db', action='store_true', help='Download and refresh the P. aeruginosa MLST database, then exit')
     args = parser.parse_args()
 
     base_dir = Path(__file__).parent.resolve()
+    db_dir = base_dir / "db"
+    bin_dir = base_dir / "bin"
+
+    if args.update_db:
+        success = update_mlst_database(db_dir, bin_dir, scheme="paeruginosa")
+        sys.exit(0 if success else 1)
+
+    if not args.input or not args.output:
+        parser.error("When not using --update-db, -i and -o are required.")
+
     try:
         analyzer = PseudoMLSTAnalyzer(base_dir)
     except FileNotFoundError as e:
@@ -705,6 +867,7 @@ def main():
         sys.exit(1)
 
     analyzer.process(args.input, Path(args.output), batch=args.batch)
+
 
 if __name__ == "__main__":
     main()
