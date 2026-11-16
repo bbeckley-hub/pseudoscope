@@ -10,34 +10,30 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
 
     steps:
-    - uses: actions/checkout@v7
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v7
-      with:
-        python-version: ${{ matrix.python-version }}
-    
-    - name: Install conda
-      uses: conda-incubator/setup-miniconda@v4
-      with:
-        auto-update-conda: true
-        python-version: ${{ matrix.python-version }}
-    
-    - name: Install PseudoScope from bioconda channel
-      shell: bash -l {0}
-      run: |
-        conda config --add channels conda-forge
-        conda config --add channels bioconda
-        conda create -n pseudoscope -c conda-forge -c bioconda pseudoscope python=${{ matrix.python-version }} -y
-        conda activate pseudoscope
-    
-    - name: Test PseudoScope help
-      shell: bash -l {0}
-      run: |
-        conda activate pseudoscope
-        pseudoscope --version
-        pseudoscope --help
+      - uses: actions/checkout@v4
+
+      - name: Setup Miniconda (create + activate 'pseudoscope' env)
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: false
+          python-version: ${{ matrix.python-version }}
+          activate-environment: pseudoscope
+          channels: conda-forge,bioconda
+          channel-priority: strict
+          use-mamba: true
+
+      - name: Install pseudoscope
+        shell: bash -l {0}
+        run: |
+          conda install -n pseudoscope -c conda-forge -c bioconda pseudoscope -y
+
+      - name: Verify pseudoscope runs
+        shell: bash -l {0}
+        run: |
+          conda run -n pseudoscope pseudoscope --help
+          conda run -n pseudoscope pseudoscope --version
